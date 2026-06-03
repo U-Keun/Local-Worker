@@ -27,6 +27,11 @@ while true; do
 
   echo "agent-once exit status: ${STATUS}"
 
+  if [[ "$STATUS" -eq 4 ]]; then
+    echo "No open tasks remaining. Exiting loop."
+    exit 0
+  fi
+
   if [[ "$MAX_RUNS" != "0" && "$RUN_COUNT" -ge "$MAX_RUNS" ]]; then
     echo "Reached MAX_RUNS=${MAX_RUNS}. Exiting."
     exit 0

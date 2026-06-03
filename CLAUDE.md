@@ -11,12 +11,14 @@ For each run:
 1. Read `AGENTS.md`.
 2. Read `tasks/queue.md`.
 3. Select the first task whose status is `open`.
-4. Work only on that task.
-5. Make the smallest coherent change that satisfies the done criteria.
-6. Run the exact test command provided by the runner.
-7. If the test fails, inspect the failure and retry within the allowed retry limit.
-8. Commit only if the verification command succeeds.
-9. Stop after one coherent task.
+4. Update that task's status to `in-progress` in `tasks/queue.md`.
+5. Work only on that task.
+6. Make the smallest coherent change that satisfies the done criteria.
+7. Run the exact test command provided by the runner.
+8. If the test fails, inspect the failure and retry within the allowed retry limit.
+9. If verification succeeds: update the task status to `done` in `tasks/queue.md`, then commit.
+10. If verification fails after all retries: update the task status to `blocked` in `tasks/queue.md`.
+11. Stop after one coherent task.
 
 ## Hard safety rules
 
@@ -77,9 +79,10 @@ Never push. A human reviews and pushes.
 If you cannot complete the task safely:
 
 1. Do not commit.
-2. Append a short note to `tasks/failed.md`.
-3. Include the task ID, what you tried, the exact test command, and the failure reason.
-4. Stop.
+2. Update the task status to `blocked` in `tasks/queue.md`.
+3. Append a short note to `tasks/failed.md`.
+4. Include the task ID, what you tried, the exact test command, and the failure reason.
+5. Stop.
 
 ## Completion note
 

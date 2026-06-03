@@ -24,8 +24,8 @@ done
 bash -n scripts/agent-once.sh
 bash -n scripts/agent-loop.sh
 
-if ! grep -q "Status: open" tasks/queue.md; then
-  echo "tasks/queue.md should contain at least one open task for the initial template."
+if ! grep -q "^## TODO-" tasks/queue.md; then
+  echo "tasks/queue.md should contain at least one task entry."
   exit 1
 fi
 

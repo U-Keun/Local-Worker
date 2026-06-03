@@ -23,9 +23,36 @@ fi
 : "${CLAUDE_PERMISSION_MODE:=}"
 : "${CLAUDE_BARE:=false}"
 : "${CLAUDE_SETTINGS_FILE:=}"
+: "${CLAUDE_MODEL:=}"
+: "${CLAUDE_TIMEOUT_SECONDS:=600}"
+: "${NOTIFY:=true}"
 
+# Exit codes: 0=success, 2=task file missing, 3=dirty worktree, 4=no open tasks, 124=timeout, 127=claude not found
 mkdir -p logs tasks
 LOG_FILE="logs/$(date +%Y%m%d-%H%M%S)-agent-once.log"
+
+notify() {
+  [[ "$NOTIFY" == "true" ]] || return 0
+  local title="$1" message="$2"
+  if [[ "$(uname)" == "Darwin" ]]; then
+    osascript -e "display notification \"${message}\" with title \"${title}\"" 2>/dev/null || true
+  elif command -v notify-send >/dev/null 2>&1; then
+    notify-send "$title" "$message" 2>/dev/null || true
+  fi
+}
+
+on_exit() {
+  local code=$?
+  local project
+  project="$(basename "$ROOT")"
+  case "$code" in
+    0)   notify "Dev Agent: done"    "$project — task completed" ;;
+    4)   notify "Dev Agent: idle"    "$project — no open tasks" ;;
+    124) notify "Dev Agent: timeout" "$project — timed out after ${CLAUDE_TIMEOUT_SECONDS}s" ;;
+    *)   notify "Dev Agent: failed"  "$project — exit $code" ;;
+  esac
+}
+trap on_exit EXIT
 
 if ! command -v claude >/dev/null 2>&1; then
   echo "claude CLI was not found. Install Claude Code or adjust PATH." | tee "$LOG_FILE"
@@ -35,6 +62,11 @@ fi
 if [[ ! -f "$TASK_FILE" ]]; then
   echo "Task file not found: $TASK_FILE" | tee "$LOG_FILE"
   exit 2
+fi
+
+if ! grep -q "^Status: open" "$TASK_FILE"; then
+  echo "No open tasks in $TASK_FILE. Nothing to do." | tee -a "$LOG_FILE"
+  exit 4
 fi
 
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -71,19 +103,22 @@ Read these files before making changes:
 
 Run exactly one work cycle:
 1. Pick the first task with Status: open from ${TASK_FILE}.
-2. Create a brief implementation plan in your response.
-3. Make the smallest coherent code or documentation changes needed.
-4. Run this test command exactly: ${TEST_COMMAND}
-5. If the test fails, inspect the failure and retry up to ${MAX_FIX_ATTEMPTS} times.
-6. If successful and COMMIT_ON_SUCCESS is ${COMMIT_ON_SUCCESS}:
+2. Update that task's status to in-progress in ${TASK_FILE}.
+3. Create a brief implementation plan in your response.
+4. Make the smallest coherent code or documentation changes needed.
+5. Run this test command exactly: ${TEST_COMMAND}
+6. If the test fails, inspect the failure and retry up to ${MAX_FIX_ATTEMPTS} times.
+7. If successful and COMMIT_ON_SUCCESS is ${COMMIT_ON_SUCCESS}:
+   - update the task status to done in ${TASK_FILE}
    - run git status
    - run git diff
-   - git add only relevant files
+   - git add only relevant files (including ${TASK_FILE})
    - commit with message: agent: complete <task-id>
-7. If unsuccessful:
+8. If unsuccessful after all retries:
+   - update the task status to blocked in ${TASK_FILE}
    - append a short report to tasks/failed.md
    - do not commit broken work.
-8. In your final response, summarize:
+9. In your final response, summarize:
    - selected task
    - files changed
    - test command and result
@@ -117,6 +152,10 @@ if [[ -n "$CLAUDE_SETTINGS_FILE" ]]; then
   ARGS+=("--settings" "$CLAUDE_SETTINGS_FILE")
 fi
 
+if [[ -n "$CLAUDE_MODEL" ]]; then
+  ARGS+=("--model" "$CLAUDE_MODEL")
+fi
+
 {
   echo "=== Local Dev Agent run ==="
   echo "Root: $ROOT"
@@ -126,10 +165,25 @@ fi
   echo
 } | tee -a "$LOG_FILE"
 
+TIMEOUT_ARGS=()
+if [[ "$CLAUDE_TIMEOUT_SECONDS" != "0" ]]; then
+  if command -v timeout >/dev/null 2>&1; then
+    TIMEOUT_ARGS=("timeout" "$CLAUDE_TIMEOUT_SECONDS")
+  elif command -v gtimeout >/dev/null 2>&1; then
+    TIMEOUT_ARGS=("gtimeout" "$CLAUDE_TIMEOUT_SECONDS")
+  else
+    echo "Warning: timeout command not found. Install coreutils (macOS: brew install coreutils) to enable CLAUDE_TIMEOUT_SECONDS." | tee -a "$LOG_FILE"
+  fi
+fi
+
 set +e
-claude "${ARGS[@]}" -p "$PROMPT" 2>&1 | tee -a "$LOG_FILE"
+"${TIMEOUT_ARGS[@]}" claude "${ARGS[@]}" -p "$PROMPT" 2>&1 | tee -a "$LOG_FILE"
 STATUS=${PIPESTATUS[0]}
 set -e
+
+if [[ "$STATUS" -eq 124 ]]; then
+  echo "Claude timed out after ${CLAUDE_TIMEOUT_SECONDS} seconds." | tee -a "$LOG_FILE"
+fi
 
 echo "Claude exit status: $STATUS" | tee -a "$LOG_FILE"
 exit "$STATUS"
