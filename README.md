@@ -138,6 +138,32 @@ Add a task to `tasks/queue.md`, then run:
     └── failed.md
 ```
 
+## GitHub Actions
+
+Two optional workflows are included in `.github/workflows/`.
+
+### Issue → Task sync
+
+When you label a GitHub Issue with `agent-task`, the workflow automatically appends a task entry to `tasks/queue.md` and commits it to the default branch. A comment is posted on the issue with the assigned task ID.
+
+One-time setup per project:
+
+1. Create the `agent-task` label in your repository (Settings → Labels).
+
+No secrets or tokens needed — the workflow uses the built-in `GITHUB_TOKEN`.
+
+### Agent branch CI
+
+Runs the configured test command whenever a commit is pushed to an `agent/**` branch.
+
+By default it runs `bash scripts/smoke-test.sh`. To use a project-specific test command, set a repository variable:
+
+- Settings → Variables → Actions → New repository variable
+- Name: `TEST_COMMAND`
+- Value: e.g. `npm test` or `cargo test`
+
+For projects that need a build environment (Node, Rust, Python, etc.), add the relevant setup steps to `.github/workflows/agent-ci.yml` — the file includes commented examples.
+
 ## Operating model
 
 Each run should do exactly one task:
