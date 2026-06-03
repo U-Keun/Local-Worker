@@ -35,9 +35,10 @@ From this template repository:
 
 ```bash
 chmod +x scripts/*.sh
-cp .agent.env.example .agent.env
-$EDITOR .agent.env
+./scripts/setup.sh
 ```
+
+`setup.sh` starts an interactive Claude session that asks a few questions and writes `.agent.env` for you.
 
 For the template itself, the default test command is:
 
