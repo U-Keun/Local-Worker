@@ -1,0 +1,183 @@
+# Local Dev Agent Template
+
+Turn an unused Mac or Linux machine into a local development worker for coding agents.
+
+This template is intentionally small. It gives you a repeatable loop:
+
+```text
+tasks/queue.md
+  -> agent-once.sh
+  -> Claude Code headless run
+  -> code/docs changes
+  -> test command
+  -> commit or failure report
+```
+
+## Goals
+
+- Run one coherent development task per agent invocation.
+- Keep every run reviewable through logs, git diff, and commits.
+- Avoid direct changes to `main` or `master`.
+- Prevent obvious unsafe operations such as reading secrets, pushing, using sudo, or deleting unrelated files.
+- Stay agent-agnostic enough to later support Codex, Aider, OpenHands, Gemini CLI, or a custom runner.
+
+## Requirements
+
+- macOS or Linux
+- Git
+- Claude Code CLI available as `claude`
+- A project-level test command
+- Optional: GitHub CLI `gh` for creating and pushing the repository
+
+## Quick start
+
+From this template repository:
+
+```bash
+chmod +x scripts/*.sh
+cp .agent.env.example .agent.env
+$EDITOR .agent.env
+```
+
+For the template itself, the default test command is:
+
+```bash
+bash scripts/smoke-test.sh
+```
+
+Run one development cycle:
+
+```bash
+./scripts/agent-once.sh
+```
+
+Run repeatedly:
+
+```bash
+./scripts/agent-loop.sh
+```
+
+The loop is deliberately conservative. If a run leaves uncommitted changes, the next run stops until you review the result.
+
+## Recommended GitHub setup
+
+```bash
+mkdir local-dev-agent-template
+cd local-dev-agent-template
+# copy these template files here
+
+git init
+git add .
+git commit -m "init local dev agent template"
+gh repo create local-dev-agent-template --public --source=. --push
+```
+
+Then enable the repository as a template from GitHub repository settings.
+
+## How to use this inside another project
+
+Copy the following files/folders into the root of the target project:
+
+```text
+CLAUDE.md
+AGENTS.md
+.agent.env.example
+tasks/
+scripts/
+logs/.gitkeep
+.claude/settings.example.json
+```
+
+Then:
+
+```bash
+cp .agent.env.example .agent.env
+$EDITOR .agent.env
+```
+
+Set the real test command, for example:
+
+```bash
+TEST_COMMAND="npm test"
+# or
+TEST_COMMAND="cargo test"
+# or
+TEST_COMMAND="cmake --build build && ctest --test-dir build"
+```
+
+Add a task to `tasks/queue.md`, then run:
+
+```bash
+./scripts/agent-once.sh
+```
+
+## File structure
+
+```text
+.
+├── README.md
+├── CLAUDE.md
+├── AGENTS.md
+├── SECURITY.md
+├── .agent.env.example
+├── .gitignore
+├── .claude/
+│   └── settings.example.json
+├── docs/
+│   └── mac-launchd.md
+├── logs/
+│   └── .gitkeep
+├── scripts/
+│   ├── agent-once.sh
+│   ├── agent-loop.sh
+│   └── smoke-test.sh
+└── tasks/
+    ├── queue.md
+    ├── done.md
+    └── failed.md
+```
+
+## Operating model
+
+Each run should do exactly one task:
+
+1. Read `CLAUDE.md`, `AGENTS.md`, and `tasks/queue.md`.
+2. Pick the first open task.
+3. Make the smallest coherent change.
+4. Run the configured test command.
+5. Retry fixes a limited number of times.
+6. Commit only if the task is verified.
+7. Write a failure report if verification fails.
+
+## Permission model
+
+This template does not enable unrestricted execution by default.
+
+Use Claude Code permissions intentionally. You can start by copying `.claude/settings.example.json` to `.claude/settings.local.json` and adjusting it for your project:
+
+```bash
+cp .claude/settings.example.json .claude/settings.local.json
+```
+
+Keep local settings out of git. The provided `.gitignore` already ignores `.claude/settings.local.json`.
+
+## First real task suggestion
+
+After pushing the template repository, use it on a small personal project and add a task like this:
+
+```md
+## TODO-001: Add a smoke test
+Status: open
+Priority: high
+
+Goal:
+Add a minimal smoke test that verifies the project starts or builds.
+
+Done criteria:
+- The test command succeeds locally.
+- README explains how to run the test.
+
+Constraints:
+- Keep the change small.
+- Do not refactor unrelated code.
+```

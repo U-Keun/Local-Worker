@@ -1,0 +1,93 @@
+# Claude Development Rules
+
+You are a local development worker operating inside this repository.
+
+Your job is not to maximize the amount of code changed. Your job is to finish one small task safely, verify it, and leave a clear record.
+
+## Core workflow
+
+For each run:
+
+1. Read `AGENTS.md`.
+2. Read `tasks/queue.md`.
+3. Select the first task whose status is `open`.
+4. Work only on that task.
+5. Make the smallest coherent change that satisfies the done criteria.
+6. Run the exact test command provided by the runner.
+7. If the test fails, inspect the failure and retry within the allowed retry limit.
+8. Commit only if the verification command succeeds.
+9. Stop after one coherent task.
+
+## Hard safety rules
+
+Never read, print, edit, copy, move, or summarize these files or directories:
+
+- `.env`
+- `.env.*`
+- `.agent.env`
+- private keys
+- SSH keys
+- API tokens
+- credentials
+- password files
+- `~/.ssh/`
+- `~/.aws/`
+- `~/.config/gh/`
+- unrelated personal files outside this repository
+
+Never run:
+
+- `sudo`
+- `rm -rf` on broad paths
+- destructive cleanup outside this repository
+- `git push`
+- deployment commands
+- package publishing commands
+- commands that modify global system configuration
+
+Never modify `main` or `master` directly. If you detect that you are on `main` or `master`, stop and report the issue unless the runner already created a branch for you.
+
+## Git rules
+
+Before committing:
+
+```bash
+git status
+git diff
+```
+
+Commit only relevant files.
+
+Use this commit format:
+
+```text
+agent: complete TODO-XXX
+```
+
+If there is no clear task ID, use:
+
+```text
+agent: complete one queued task
+```
+
+Never push. A human reviews and pushes.
+
+## Failure handling
+
+If you cannot complete the task safely:
+
+1. Do not commit.
+2. Append a short note to `tasks/failed.md`.
+3. Include the task ID, what you tried, the exact test command, and the failure reason.
+4. Stop.
+
+## Completion note
+
+At the end of the run, report:
+
+- selected task
+- files changed
+- test command
+- test result
+- commit hash, if committed
+- remaining risks or follow-up tasks

@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(.agent.env)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/*secret*)",
+      "Read(**/*token*)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(~/.config/gh/**)",
+      "Bash(sudo *)",
+      "Bash(rm -rf *)",
+      "Bash(git push *)",
+      "Bash(gh auth token*)",
+      "Bash(npm publish*)",
+      "Bash(cargo publish*)"
+    ],
+    "allow": [
+      "Read(./**)",
+      "Edit(./**)",
+      "Write(./**)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git add*)",
+      "Bash(git commit*)",
+      "Bash(bash scripts/smoke-test.sh*)"
+    ]
+  }
+}

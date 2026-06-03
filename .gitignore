@@ -1,0 +1,23 @@
+# local agent config
+.agent.env
+logs/*.log
+logs/*.jsonl
+
+# Claude local settings
+.claude/settings.local.json
+
+# secrets
+.env
+.env.*
+!.env.example
+
+# macOS
+.DS_Store
+
+# common build outputs
+node_modules/
+dist/
+build/
+target/
+.cache/
+.tmp/
