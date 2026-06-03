@@ -131,6 +131,9 @@ Add a task to `tasks/queue.md`, then run:
 ├── scripts/
 │   ├── agent-once.sh
 │   ├── agent-loop.sh
+│   ├── add-task.sh
+│   ├── watch-issues.sh
+│   ├── setup.sh
 │   └── smoke-test.sh
 └── tasks/
     ├── queue.md
@@ -138,9 +141,27 @@ Add a task to `tasks/queue.md`, then run:
     └── failed.md
 ```
 
+## Adding tasks
+
+**Manually:**
+
+```bash
+bash scripts/add-task.sh --title "Fix login bug" --goal "에러 메시지가 표시되지 않는 문제 수정"
+```
+
+**From GitHub Issues (polling):**
+
+```bash
+bash scripts/watch-issues.sh &
+```
+
+`agent-task` 라벨이 붙은 open issue를 주기적으로 확인해서 `queue.md`에 자동으로 추가합니다. 기본 폴링 간격은 60초이며 `.agent.env`에서 `WATCH_INTERVAL_SECONDS`로 조정할 수 있습니다.
+
 ## GitHub Actions
 
 Two optional workflows are included in `.github/workflows/`.
+
+> **Note:** When creating a new repository from this template, workflow files are copied automatically but Secrets and Variables are not. You must configure these manually in each new repository's settings.
 
 ### Issue → Task sync
 
@@ -158,7 +179,7 @@ Runs the configured test command whenever a commit is pushed to an `agent/**` br
 
 By default it runs `bash scripts/smoke-test.sh`. To use a project-specific test command, set a repository variable:
 
-- Settings → Variables → Actions → New repository variable
+- Settings → Secrets and variables → Actions → Variables → New repository variable
 - Name: `TEST_COMMAND`
 - Value: e.g. `npm test` or `cargo test`
 
