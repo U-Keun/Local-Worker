@@ -9,6 +9,7 @@ import {
   Send,
   Sparkles,
   Terminal,
+  X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, isTauriRuntime } from "../api";
@@ -29,8 +30,12 @@ interface AgentChatPanelProps {
   project: Project | null;
   selectedRun: RunRecord | null;
   status: AppStatus | null;
+  open?: boolean;
+  drawer?: boolean;
   disabled?: boolean;
+  onClose?: () => void;
   onError: (message: string) => void;
+  onActiveTurnChange?: (turn: ChatTurn | null) => void;
 }
 
 function formatTime(value: string | null) {
@@ -64,8 +69,12 @@ export function AgentChatPanel({
   project,
   selectedRun,
   status,
+  open = true,
+  drawer = false,
   disabled = false,
+  onClose,
   onError,
+  onActiveTurnChange,
 }: AgentChatPanelProps) {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<number | null>(null);
@@ -87,6 +96,13 @@ export function AgentChatPanel({
   const canUseBackend = backendAvailable(status, backend);
   const runCanDiscuss =
     selectedRun?.status === "failed" || selectedRun?.status === "blocked";
+  const panelClassName = [
+    "chat-panel",
+    drawer ? "chat-drawer" : "",
+    open ? "open" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   const loadSessions = useCallback(
     async (preferredSessionId?: number | null) => {
@@ -213,8 +229,23 @@ export function AgentChatPanel({
     };
   }, [selectedSessionId, loadConversation, onError]);
 
+  useEffect(() => {
+    onActiveTurnChange?.(activeTurn ?? null);
+  }, [activeTurn, onActiveTurnChange]);
+
+  useEffect(() => {
+    if (!open || !onClose) return;
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose?.();
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open, onClose]);
+
   return (
-    <section className="chat-panel">
+    <section className={panelClassName} aria-hidden={drawer ? !open : undefined}>
       <div className="panel-heading chat-heading">
         <div>
           <h3>Agent Chat</h3>
@@ -224,7 +255,19 @@ export function AgentChatPanel({
               : "Select a project to chat with Codex or Claude."}
           </p>
         </div>
-        <Bot size={16} />
+        <div className="chat-heading-actions">
+          <Bot size={16} />
+          {onClose && (
+            <button
+              type="button"
+              className="ghost-icon-button"
+              onClick={onClose}
+              title="Close chat"
+            >
+              <X size={16} />
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="chat-toolbar">

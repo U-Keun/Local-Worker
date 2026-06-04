@@ -214,6 +214,11 @@ button {
   align-items: center;
 }
 
+.chat-action.running {
+  color: #4a3100;
+  background: #fff4ce;
+}
+
 .message {
   padding: 10px 12px;
   border: 1px solid #d0dadf;
@@ -343,12 +348,6 @@ button {
   grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
   gap: 16px;
   align-items: start;
-}
-
-.side-stack {
-  display: grid;
-  gap: 16px;
-  min-height: 0;
 }
 
 .setup-grid {
@@ -532,6 +531,19 @@ button {
   border-bottom: 1px solid #e4eaed;
 }
 
+.log-heading-actions,
+.chat-heading-actions {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.log-discuss-button {
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
 .task-list,
 .run-list {
   display: grid;
@@ -625,6 +637,40 @@ button {
   flex-direction: column;
   min-height: 420px;
   overflow: hidden;
+}
+
+.chat-drawer {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 30;
+  width: min(520px, calc(100vw - 32px));
+  min-height: 0;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(calc(100% + 24px));
+  transition:
+    opacity 160ms ease,
+    transform 180ms ease,
+    visibility 180ms ease;
+  visibility: hidden;
+  box-shadow: 0 18px 70px rgba(13, 32, 38, 0.24);
+}
+
+.chat-drawer.open {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0);
+  visibility: visible;
+}
+
+.chat-drawer .chat-timeline {
+  min-height: 0;
+}
+
+.chat-drawer .chat-live-log pre {
+  max-height: 140px;
 }
 
 .chat-heading p {
@@ -1270,9 +1316,9 @@ button {
     flex: 1;
     grid-template-areas:
       "health health"
-      "setup side"
-      "summary side"
-      "main side"
+      "setup log"
+      "summary log"
+      "main log"
       "settings settings";
     grid-template-columns: minmax(660px, 1fr) minmax(360px, 430px);
     grid-template-rows: auto auto auto minmax(0, 1fr) auto;
@@ -1305,10 +1351,8 @@ button {
     min-height: 0;
   }
 
-  .side-stack {
-    grid-area: side;
-    grid-template-rows: minmax(220px, 0.78fr) minmax(320px, 1fr);
-    min-height: 0;
+  .log-panel {
+    grid-area: log;
   }
 
   .settings-strip {

@@ -8,6 +8,7 @@ import {
   FolderPlus,
   Github,
   Laptop,
+  MessageCircle,
   Play,
   Plus,
   RefreshCw,
@@ -22,6 +23,7 @@ import { SetupWizard } from "./components/SetupWizard";
 import { WorkerHealthStrip } from "./components/WorkerHealthStrip";
 import type {
   AppStatus,
+  ChatTurn,
   Project,
   ProjectSetupCheck,
   QueuedTask,
@@ -75,6 +77,8 @@ export default function App() {
     pollIntervalSeconds: 60,
   });
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [activeChatTurn, setActiveChatTurn] = useState<ChatTurn | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -87,6 +91,9 @@ export default function App() {
     () => runs.find((run) => run.id === selectedRunId) ?? null,
     [runs, selectedRunId],
   );
+
+  const selectedRunNeedsDiscussion =
+    selectedRun?.status === "failed" || selectedRun?.status === "blocked";
 
   async function refresh(projectId = selectedProjectId) {
     const [nextStatus, nextHealth, nextProjects] = await Promise.all([
@@ -103,18 +110,21 @@ export default function App() {
     setSelectedProjectId(nextProjectId);
 
     if (nextProjectId) {
-      const [nextTasks, nextRuns] = await Promise.all([
+      const [nextTasks, nextRuns, nextActiveChatTurn] = await Promise.all([
         api.listTasks(nextProjectId),
         api.listRuns(nextProjectId),
+        api.getActiveChatTurn(nextProjectId),
       ]);
       setTasks(nextTasks);
       setRuns(nextRuns);
+      setActiveChatTurn(nextActiveChatTurn);
       setSelectedRunId((current) =>
         nextRuns.some((run) => run.id === current) ? current : nextRuns[0]?.id ?? null,
       );
     } else {
       setTasks([]);
       setRuns([]);
+      setActiveChatTurn(null);
       setSelectedRunId(null);
       setLogs([]);
     }
@@ -271,6 +281,12 @@ export default function App() {
   ]);
 
   useEffect(() => {
+    if (selectedProject) return;
+    setChatOpen(false);
+    setActiveChatTurn(null);
+  }, [selectedProject]);
+
+  useEffect(() => {
     const timer = window.setInterval(() => {
       refresh().catch((error) => setMessage(String(error)));
     }, 5000);
@@ -333,6 +349,15 @@ export default function App() {
             >
               <Play size={18} />
               Run
+            </button>
+            <button
+              className={activeChatTurn ? "chat-action running" : "chat-action"}
+              disabled={!selectedProject}
+              onClick={() => setChatOpen(true)}
+              title="Open Agent Chat"
+            >
+              <MessageCircle size={18} />
+              {activeChatTurn ? "Chat running" : "Chat"}
             </button>
             <button
               disabled={busy}
@@ -490,29 +515,33 @@ export default function App() {
             </div>
           </section>
 
-          <section className="side-stack">
-            <section className="log-panel">
-              <div className="panel-heading">
-                <div>
-                  <h3>Execution Log</h3>
-                  <p>
-                    {selectedRun
-                      ? `${selectedRun.task_id ?? "manual"} · ${selectedRun.branch ?? "no branch"} · ${formatDate(selectedRun.finished_at)}`
-                      : "Select a run to inspect output."}
-                  </p>
-                </div>
+          <section className="log-panel">
+            <div className="panel-heading">
+              <div>
+                <h3>Execution Log</h3>
+                <p>
+                  {selectedRun
+                    ? `${selectedRun.task_id ?? "manual"} · ${selectedRun.branch ?? "no branch"} · ${formatDate(selectedRun.finished_at)}`
+                    : "Select a run to inspect output."}
+                </p>
+              </div>
+              <div className="log-heading-actions">
+                {selectedRunNeedsDiscussion && (
+                  <button
+                    type="button"
+                    className="secondary-button log-discuss-button"
+                    disabled={!selectedProject}
+                    onClick={() => setChatOpen(true)}
+                    title="Discuss selected failed run with agent"
+                  >
+                    <MessageCircle size={15} />
+                    Discuss
+                  </button>
+                )}
                 <Terminal size={16} />
               </div>
-              <pre>{logs.join("\n")}</pre>
-            </section>
-
-            <AgentChatPanel
-              project={selectedProject}
-              selectedRun={selectedRun}
-              status={status}
-              disabled={busy}
-              onError={setMessage}
-            />
+            </div>
+            <pre>{logs.join("\n")}</pre>
           </section>
 
           <section className="settings-strip">
@@ -580,6 +609,20 @@ export default function App() {
           </section>
         </section>
       </section>
+
+      {selectedProject && (
+        <AgentChatPanel
+          open={chatOpen}
+          onClose={() => setChatOpen(false)}
+          drawer
+          project={selectedProject}
+          selectedRun={selectedRun}
+          status={status}
+          disabled={busy}
+          onError={setMessage}
+          onActiveTurnChange={setActiveChatTurn}
+        />
+      )}
 
       <SetupWizard
         open={wizardOpen}
