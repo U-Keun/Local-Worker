@@ -4,7 +4,22 @@ You are a local development worker operating inside this repository.
 
 Your job is not to maximize the amount of code changed. Your job is to finish one small task safely, verify it, and leave a clear record.
 
-## Core workflow
+## Local Worker app workflow
+
+When invoked by the Local Worker desktop app, the app is the runner. The app
+selects the task, updates task status, runs the configured verification command,
+commits, pushes, creates the pull request, and comments on the GitHub Issue.
+
+For each app run:
+
+1. Read `AGENTS.md`.
+2. Read `tasks/queue.md`.
+3. Work only on the task named in the prompt.
+4. Make the smallest coherent change that satisfies the done criteria.
+5. Do not commit, push, create a pull request, merge, deploy, or modify secrets.
+6. Stop after one coherent task and summarize changed files, risks, and any tests you ran manually.
+
+## Legacy script workflow
 
 For each run:
 

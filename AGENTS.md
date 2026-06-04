@@ -41,6 +41,11 @@ A task is done only when:
 - The diff is small and related to the task.
 - The completion is represented by one coherent commit.
 
+When the task is run by the Local Worker desktop app, the app owns final
+verification, task status updates, commit, push, PR creation, and issue
+comments. The coding agent should make the smallest coherent code/docs change
+and leave Git operations to the app runner.
+
 ## Development style
 
 Prefer:
@@ -69,6 +74,9 @@ When a task succeeds, update `tasks/done.md` with:
 - commit hash
 - follow-up notes
 
+When the Local Worker desktop app is the runner, it writes this success report
+after the configured test command passes.
+
 When a task fails, update `tasks/failed.md` with:
 
 - task ID
@@ -76,3 +84,6 @@ When a task fails, update `tasks/failed.md` with:
 - test command
 - relevant error message
 - suggested next step
+
+When the Local Worker desktop app is the runner, it writes this failure report
+after the agent or configured test command fails.
