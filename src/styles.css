@@ -218,7 +218,7 @@ button {
 
 .setup-grid {
   display: grid;
-  grid-template-columns: minmax(280px, 0.9fr) minmax(420px, 1.1fr);
+  grid-template-columns: minmax(280px, 0.9fr) minmax(320px, 1.1fr);
   gap: 16px;
 }
 
@@ -250,7 +250,7 @@ button {
 }
 
 .create-form {
-  grid-template-columns: minmax(120px, 0.8fr) minmax(160px, 1fr) auto auto auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: center;
 }
 
@@ -273,6 +273,10 @@ button {
   white-space: nowrap;
 }
 
+.create-form button {
+  justify-self: start;
+}
+
 .inline-form button,
 .create-form button {
   display: inline-flex;
@@ -284,6 +288,13 @@ button {
   border-radius: 8px;
   color: #f8fbfb;
   background: #2f6f73;
+}
+
+@media (max-width: 1120px) {
+  .setup-grid,
+  .content-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .inline-form button:disabled,
