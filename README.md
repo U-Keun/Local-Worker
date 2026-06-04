@@ -50,7 +50,7 @@ bash scripts/smoke-test.sh
 
 ## Operating Model
 
-1. Register a local Git repository in the app.
+1. Create a new project from the app or register an existing local Git repository.
 2. Make sure the repository has a GitHub `origin` remote and `gh` can access it.
 3. Create a GitHub Issue from anywhere and add the `agent-task` label.
 4. Local Worker polls open labeled issues, creates a `TODO-XXX` entry in `tasks/queue.md`, and starts the first open task.
@@ -59,6 +59,17 @@ bash scripts/smoke-test.sh
 7. Local Worker runs the project test command.
 8. On success, Local Worker marks the task done, writes `tasks/done.md`, commits, pushes, creates a PR, and comments on the issue.
 9. On failure, Local Worker marks the task blocked, writes `tasks/failed.md`, comments on the issue, and leaves the worktree intact.
+
+## Creating Projects
+
+The dashboard can create a fresh worker-ready repository:
+
+1. Enter a project name and parent folder.
+2. Choose whether to create a GitHub repository with `gh repo create`.
+3. Local Worker creates the folder, runs `git init`, writes `AGENTS.md`, `tasks/`, `.gitignore`, `README.md`, and `scripts/smoke-test.sh`.
+4. Local Worker creates the initial commit and registers the project in the app.
+
+If GitHub creation is enabled, the app uses your existing `gh` authentication, adds `origin`, and pushes the initial commit.
 
 ## Safety Baseline
 

@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   CircleAlert,
   Clock3,
+  FolderPlus,
   Github,
   Laptop,
   Play,
@@ -61,6 +62,10 @@ export default function App() {
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const [newPath, setNewPath] = useState("");
+  const [createName, setCreateName] = useState("");
+  const [createParentPath, setCreateParentPath] = useState("");
+  const [createGithubRepo, setCreateGithubRepo] = useState(false);
+  const [createPrivateRepo, setCreatePrivateRepo] = useState(true);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -184,28 +189,6 @@ export default function App() {
           ))}
         </div>
 
-        <form
-          className="add-project"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!newPath.trim()) return;
-            withBusy(async () => {
-              const project = await api.addProject(newPath.trim());
-              setNewPath("");
-              await refresh(project.id);
-            }, "Project added").catch(() => undefined);
-          }}
-        >
-          <input
-            value={newPath}
-            onChange={(event) => setNewPath(event.target.value)}
-            placeholder="/path/to/repo"
-          />
-          <button type="submit" disabled={busy} title="Add project">
-            <Plus size={18} />
-          </button>
-        </form>
-
         <div className="cli-status">
           <span className={status?.gh_available ? "ok" : "missing"}>gh</span>
           <span className={status?.codex_available ? "ok" : "missing"}>codex</span>
@@ -269,6 +252,92 @@ export default function App() {
         </header>
 
         {message && <div className="message">{message}</div>}
+
+        <section className="setup-grid">
+          <form
+            className="setup-panel"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!newPath.trim()) return;
+              withBusy(async () => {
+                const project = await api.addProject(newPath.trim());
+                setNewPath("");
+                await refresh(project.id);
+              }, "Project added").catch(() => undefined);
+            }}
+          >
+            <div className="setup-heading">
+              <Plus size={18} />
+              <h3>Register Existing Repo</h3>
+            </div>
+            <div className="inline-form">
+              <input
+                value={newPath}
+                onChange={(event) => setNewPath(event.target.value)}
+                placeholder="/path/to/repo"
+              />
+              <button type="submit" disabled={busy} title="Add project">
+                <Plus size={18} />
+              </button>
+            </div>
+          </form>
+
+          <form
+            className="setup-panel"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!createName.trim() || !createParentPath.trim()) return;
+              withBusy(async () => {
+                const project = await api.createProject({
+                  name: createName.trim(),
+                  parent_path: createParentPath.trim(),
+                  create_github_repo: createGithubRepo,
+                  private_repo: createPrivateRepo,
+                });
+                setCreateName("");
+                await refresh(project.id);
+              }, "Project created").catch(() => undefined);
+            }}
+          >
+            <div className="setup-heading">
+              <FolderPlus size={18} />
+              <h3>Create New Project</h3>
+            </div>
+            <div className="create-form">
+              <input
+                value={createName}
+                onChange={(event) => setCreateName(event.target.value)}
+                placeholder="project-name"
+              />
+              <input
+                value={createParentPath}
+                onChange={(event) => setCreateParentPath(event.target.value)}
+                placeholder="/parent/folder"
+              />
+              <label>
+                <input
+                  type="checkbox"
+                  checked={createGithubRepo}
+                  onChange={(event) => setCreateGithubRepo(event.target.checked)}
+                />
+                Create GitHub repo
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={createPrivateRepo}
+                  disabled={!createGithubRepo}
+                  onChange={(event) => setCreatePrivateRepo(event.target.checked)}
+                />
+                Private
+              </label>
+              <button type="submit" disabled={busy} title="Create project">
+                <FolderPlus size={18} />
+                Create
+              </button>
+            </div>
+          </form>
+        </section>
 
         <section className="summary-grid">
           <div className="metric">

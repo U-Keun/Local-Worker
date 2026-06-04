@@ -63,6 +63,13 @@ export interface SyncResult {
   issues_seen: number;
 }
 
+export interface CreateProjectRequest {
+  name: string;
+  parent_path: string;
+  create_github_repo: boolean;
+  private_repo: boolean;
+}
+
 export interface RunLogEvent {
   run_id: number;
   stream: string;

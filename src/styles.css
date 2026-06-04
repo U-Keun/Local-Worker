@@ -103,22 +103,6 @@ button {
   white-space: nowrap;
 }
 
-.add-project {
-  display: grid;
-  grid-template-columns: 1fr 44px;
-  gap: 8px;
-}
-
-.add-project input {
-  min-width: 0;
-  padding: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 8px;
-  color: #f7fbfb;
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.add-project button,
 .actions button {
   display: inline-flex;
   align-items: center;
@@ -131,7 +115,6 @@ button {
   background: #2f6f73;
 }
 
-.add-project button:disabled,
 .actions button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
@@ -201,7 +184,8 @@ button {
 .metric,
 .panel,
 .log-panel,
-.settings-strip {
+.settings-strip,
+.setup-panel {
   border: 1px solid #d7dee2;
   border-radius: 8px;
   background: #ffffff;
@@ -230,6 +214,82 @@ button {
   grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
   gap: 16px;
   align-items: start;
+}
+
+.setup-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.9fr) minmax(420px, 1.1fr);
+  gap: 16px;
+}
+
+.setup-panel {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.setup-heading {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.setup-heading h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.inline-form,
+.create-form {
+  display: grid;
+  gap: 8px;
+}
+
+.inline-form {
+  grid-template-columns: minmax(0, 1fr) 44px;
+}
+
+.create-form {
+  grid-template-columns: minmax(120px, 0.8fr) minmax(160px, 1fr) auto auto auto;
+  align-items: center;
+}
+
+.inline-form input,
+.create-form input[type="text"],
+.create-form input:not([type]) {
+  min-width: 0;
+  height: 40px;
+  padding: 0 10px;
+  border: 1px solid #d0dade;
+  border-radius: 8px;
+  color: #182026;
+  background: #fbfcfd;
+}
+
+.create-form label {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.inline-form button,
+.create-form button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 8px;
+  color: #f8fbfb;
+  background: #2f6f73;
+}
+
+.inline-form button:disabled,
+.create-form button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .panel,

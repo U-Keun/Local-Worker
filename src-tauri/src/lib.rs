@@ -5,6 +5,7 @@ mod git;
 mod github;
 mod models;
 mod runner;
+mod scaffold;
 mod tasks;
 
 use std::path::{Path, PathBuf};
@@ -21,7 +22,9 @@ use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager};
 
 use crate::errors::{WorkerError, WorkerResult};
-use crate::models::{AppStatus, Project, ProjectUpdate, QueuedTask, RunRecord, SyncResult};
+use crate::models::{
+    AppStatus, CreateProjectRequest, Project, ProjectUpdate, QueuedTask, RunRecord, SyncResult,
+};
 
 pub struct AppState {
     pub db: Mutex<Connection>,
@@ -80,6 +83,23 @@ fn add_project(path: String, state: tauri::State<'_, AppState>) -> Result<Projec
         repo.as_deref(),
     )
     .map_err(Into::into)
+}
+
+#[tauri::command]
+fn create_project(
+    request: CreateProjectRequest,
+    state: tauri::State<'_, AppState>,
+) -> Result<Project, String> {
+    let (path, created_repo) = scaffold::create_project(&request).map_err(String::from)?;
+    let project_path = PathBuf::from(&path);
+    let name = project_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("Project")
+        .to_string();
+    let repo = created_repo.or_else(|| git::repo_slug(&project_path));
+    let conn = state.db.lock().expect("db lock");
+    db::insert_project(&conn, &name, &path, repo.as_deref()).map_err(Into::into)
 }
 
 #[tauri::command]
@@ -266,6 +286,7 @@ pub fn run() {
             app_status,
             list_projects,
             add_project,
+            create_project,
             update_project,
             list_tasks,
             list_runs,

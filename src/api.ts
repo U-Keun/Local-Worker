@@ -6,12 +6,15 @@ import type {
   RunRecord,
   LogLine,
   SyncResult,
+  CreateProjectRequest,
 } from "./types";
 
 export const api = {
   appStatus: () => invoke<AppStatus>("app_status"),
   listProjects: () => invoke<Project[]>("list_projects"),
   addProject: (path: string) => invoke<Project>("add_project", { path }),
+  createProject: (request: CreateProjectRequest) =>
+    invoke<Project>("create_project", { request }),
   updateProject: (project: Project) => invoke<Project>("update_project", { project }),
   listTasks: (projectId: number) => invoke<QueuedTask[]>("list_tasks", { projectId }),
   listRuns: (projectId: number) => invoke<RunRecord[]>("list_runs", { projectId }),

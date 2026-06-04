@@ -69,6 +69,14 @@ pub struct SyncResult {
     pub issues_seen: usize,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateProjectRequest {
+    pub name: String,
+    pub parent_path: String,
+    pub create_github_repo: bool,
+    pub private_repo: bool,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct RunLogEvent {
     pub run_id: i64,
