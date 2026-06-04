@@ -21,6 +21,8 @@ interface WorkerHealthStripProps {
 
 function formatDate(value: string | null) {
   if (!value) return "never";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat(undefined, {
     month: "short",
     day: "numeric",
@@ -66,7 +68,7 @@ export function WorkerHealthStrip({
         </span>
         <span className="health-item">
           <Clock3 size={15} />
-          Next {health?.next_sync ?? "manual"}
+          Next {health?.next_sync ? formatDate(health.next_sync) : "manual"}
         </span>
         <span className={`health-item ${health?.gh_available ? "ok" : "warn"}`}>
           <Github size={15} />

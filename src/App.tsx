@@ -69,6 +69,10 @@ export default function App() {
   const [logs, setLogs] = useState<string[]>([]);
   const [newPath, setNewPath] = useState("");
   const [setupChecks, setSetupChecks] = useState<ProjectSetupCheck[]>([]);
+  const [projectSettings, setProjectSettings] = useState({
+    autoRun: true,
+    pollIntervalSeconds: 60,
+  });
   const [wizardOpen, setWizardOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -152,8 +156,12 @@ export default function App() {
       return;
     }
     await withBusy(async () => {
-      const result = await api.syncGithubIssues(selectedProject.id);
-      await refresh(selectedProject.id);
+      let result;
+      try {
+        result = await api.syncGithubIssues(selectedProject.id);
+      } finally {
+        await refresh(selectedProject.id);
+      }
       setMessage(
         `Sync complete: ${result.added} added, ${result.skipped} skipped, ${result.issues_seen} seen`,
       );
@@ -202,6 +210,26 @@ export default function App() {
     }, "Setup check complete");
   }
 
+  async function saveProjectSchedule() {
+    if (!selectedProject) return;
+    const pollIntervalSeconds = Math.max(
+      30,
+      Math.floor(Number(projectSettings.pollIntervalSeconds) || 60),
+    );
+    await withBusy(async () => {
+      const project = await api.updateProject({
+        ...selectedProject,
+        auto_run: projectSettings.autoRun,
+        poll_interval_seconds: pollIntervalSeconds,
+      });
+      setProjectSettings({
+        autoRun: project.auto_run,
+        pollIntervalSeconds: project.poll_interval_seconds,
+      });
+      await refresh(project.id);
+    }, "Polling schedule updated");
+  }
+
   useEffect(() => {
     refresh().catch((error) => setMessage(String(error)));
     api.startPolling().catch((error) => setMessage(String(error)));
@@ -227,6 +255,18 @@ export default function App() {
   useEffect(() => {
     refreshLogs().catch((error) => setMessage(String(error)));
   }, [selectedRunId]);
+
+  useEffect(() => {
+    if (!selectedProject) return;
+    setProjectSettings({
+      autoRun: selectedProject.auto_run,
+      pollIntervalSeconds: selectedProject.poll_interval_seconds,
+    });
+  }, [
+    selectedProject?.id,
+    selectedProject?.auto_run,
+    selectedProject?.poll_interval_seconds,
+  ]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -464,22 +504,67 @@ export default function App() {
           </section>
 
           <section className="settings-strip">
-            <Settings size={18} />
-            <label>
-              <input
-                type="checkbox"
-                checked={Boolean(status?.autostart_enabled)}
-                onChange={(event) =>
-                  withBusy(async () => {
-                    const enabled = await api.setAutostart(event.target.checked);
-                    setStatus((current) =>
-                      current ? { ...current, autostart_enabled: enabled } : current,
-                    );
-                  }, "Autostart updated")
-                }
-              />
-              Start Local Worker when this Mac logs in
-            </label>
+            <div className="settings-group">
+              <Settings size={18} />
+              <label>
+                <input
+                  type="checkbox"
+                  checked={Boolean(status?.autostart_enabled)}
+                  onChange={(event) =>
+                    withBusy(async () => {
+                      const enabled = await api.setAutostart(event.target.checked);
+                      setStatus((current) =>
+                        current ? { ...current, autostart_enabled: enabled } : current,
+                      );
+                    }, "Autostart updated")
+                  }
+                />
+                Start Local Worker when this Mac logs in
+              </label>
+            </div>
+
+            {selectedProject && (
+              <form
+                className="scheduler-settings"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  saveProjectSchedule().catch((error) => setMessage(String(error)));
+                }}
+              >
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={projectSettings.autoRun}
+                    onChange={(event) =>
+                      setProjectSettings((current) => ({
+                        ...current,
+                        autoRun: event.target.checked,
+                      }))
+                    }
+                  />
+                  Auto run
+                </label>
+                <label>
+                  Poll every
+                  <input
+                    type="number"
+                    min={30}
+                    step={10}
+                    value={projectSettings.pollIntervalSeconds}
+                    onChange={(event) =>
+                      setProjectSettings((current) => ({
+                        ...current,
+                        pollIntervalSeconds: Number(event.target.value),
+                      }))
+                    }
+                  />
+                  seconds
+                </label>
+                <button type="submit" disabled={busy} title="Save polling schedule">
+                  Save schedule
+                </button>
+              </form>
+            )}
           </section>
         </section>
       </section>

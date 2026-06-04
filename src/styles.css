@@ -614,15 +614,58 @@ button {
 
 .settings-strip {
   display: flex;
-  gap: 10px;
+  justify-content: space-between;
+  gap: 16px;
   align-items: center;
   padding: 12px 14px;
 }
 
+.settings-group,
+.scheduler-settings,
 .settings-strip label {
   display: inline-flex;
   gap: 8px;
   align-items: center;
+}
+
+.settings-group {
+  min-width: 0;
+}
+
+.scheduler-settings {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.scheduler-settings label {
+  white-space: nowrap;
+}
+
+.scheduler-settings input[type="number"] {
+  width: 78px;
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid #d0dade;
+  border-radius: 8px;
+  color: #182026;
+  background: #fbfcfd;
+}
+
+.scheduler-settings button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  color: #f8fbfb;
+  background: #2f6f73;
+  white-space: nowrap;
+}
+
+.scheduler-settings button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .wizard-backdrop {
@@ -1025,6 +1068,15 @@ button {
   }
 
   .health-actions {
+    justify-content: flex-start;
+  }
+
+  .settings-strip {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .scheduler-settings {
     justify-content: flex-start;
   }
 }

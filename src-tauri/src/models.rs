@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+pub const MIN_POLL_INTERVAL_SECONDS: i64 = 30;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Project {
     pub id: i64,
@@ -15,6 +17,12 @@ pub struct Project {
     pub auto_push: bool,
     pub created_at: String,
     pub updated_at: String,
+}
+
+impl Project {
+    pub fn safe_poll_interval_seconds(&self) -> i64 {
+        self.poll_interval_seconds.max(MIN_POLL_INTERVAL_SECONDS)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,6 +75,17 @@ pub struct SyncResult {
     pub added: usize,
     pub skipped: usize,
     pub issues_seen: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectSyncState {
+    pub project_id: i64,
+    pub last_checked_at: Option<String>,
+    pub last_success_at: Option<String>,
+    pub next_check_at: Option<String>,
+    pub last_error: Option<String>,
+    pub issues_seen: i64,
+    pub issues_added: i64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -173,6 +192,26 @@ pub struct ProjectUpdate {
     pub auto_push: bool,
     pub created_at: String,
     pub updated_at: String,
+}
+
+impl From<Project> for ProjectUpdate {
+    fn from(project: Project) -> Self {
+        Self {
+            id: project.id,
+            name: project.name,
+            path: project.path,
+            repo: project.repo,
+            issue_label: project.issue_label,
+            poll_interval_seconds: project.poll_interval_seconds,
+            test_command: project.test_command,
+            agent_backend: project.agent_backend,
+            branch_prefix: project.branch_prefix,
+            auto_run: project.auto_run,
+            auto_push: project.auto_push,
+            created_at: project.created_at,
+            updated_at: project.updated_at,
+        }
+    }
 }
 
 fn normalized_optional(value: &Option<String>, fallback: &str) -> String {

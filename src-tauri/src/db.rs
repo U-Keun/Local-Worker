@@ -4,7 +4,10 @@ use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::errors::WorkerResult;
-use crate::models::{LogLine, Project, ProjectUpdate, QueuedTask, RunRecord};
+use crate::models::{
+    LogLine, Project, ProjectSyncState, ProjectUpdate, QueuedTask, RunRecord,
+    MIN_POLL_INTERVAL_SECONDS,
+};
 
 pub fn now() -> String {
     Utc::now().to_rfc3339()
@@ -57,6 +60,17 @@ pub fn open_database(path: &Path) -> WorkerResult<Connection> {
             pr_url TEXT,
             last_seen_at TEXT NOT NULL,
             UNIQUE(project_id, issue_number),
+            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS project_sync_states (
+            project_id INTEGER PRIMARY KEY,
+            last_checked_at TEXT,
+            last_success_at TEXT,
+            next_check_at TEXT,
+            last_error TEXT,
+            issues_seen INTEGER NOT NULL DEFAULT 0,
+            issues_added INTEGER NOT NULL DEFAULT 0,
             FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
         );
 
@@ -209,7 +223,7 @@ pub fn update_project(conn: &Connection, project: &ProjectUpdate) -> WorkerResul
             project.name,
             project.repo,
             project.issue_label,
-            project.poll_interval_seconds,
+            project.poll_interval_seconds.max(MIN_POLL_INTERVAL_SECONDS),
             project.test_command,
             project.agent_backend,
             project.branch_prefix,
@@ -375,10 +389,115 @@ pub fn has_running_run(conn: &Connection, project_id: i64) -> WorkerResult<bool>
 }
 
 pub fn last_issue_sync_at(conn: &Connection) -> WorkerResult<Option<String>> {
-    conn.query_row("SELECT MAX(last_seen_at) FROM issue_syncs", [], |row| {
-        row.get(0)
-    })
+    conn.query_row(
+        "SELECT MAX(last_success_at) FROM project_sync_states",
+        [],
+        |row| row.get(0),
+    )
     .map_err(Into::into)
+}
+
+pub fn next_project_check_at(conn: &Connection) -> WorkerResult<Option<String>> {
+    conn.query_row(
+        "SELECT MIN(next_check_at) FROM project_sync_states WHERE next_check_at IS NOT NULL",
+        [],
+        |row| row.get(0),
+    )
+    .map_err(Into::into)
+}
+
+pub fn latest_sync_error(conn: &Connection) -> WorkerResult<Option<String>> {
+    conn.query_row(
+        "
+        SELECT last_error
+        FROM project_sync_states
+        WHERE last_error IS NOT NULL AND last_error <> ''
+        ORDER BY last_checked_at DESC
+        LIMIT 1
+        ",
+        [],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+pub fn get_project_sync_state(
+    conn: &Connection,
+    project_id: i64,
+) -> WorkerResult<Option<ProjectSyncState>> {
+    conn.query_row(
+        "
+        SELECT project_id, last_checked_at, last_success_at, next_check_at,
+               last_error, issues_seen, issues_added
+        FROM project_sync_states
+        WHERE project_id = ?1
+        ",
+        [project_id],
+        sync_state_from_row,
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+pub fn record_project_sync_success(
+    conn: &Connection,
+    project_id: i64,
+    checked_at: &str,
+    next_check_at: &str,
+    issues_seen: usize,
+    issues_added: usize,
+) -> WorkerResult<()> {
+    conn.execute(
+        "
+        INSERT INTO project_sync_states (
+            project_id, last_checked_at, last_success_at, next_check_at,
+            last_error, issues_seen, issues_added
+        )
+        VALUES (?1, ?2, ?2, ?3, NULL, ?4, ?5)
+        ON CONFLICT(project_id) DO UPDATE SET
+            last_checked_at = excluded.last_checked_at,
+            last_success_at = excluded.last_success_at,
+            next_check_at = excluded.next_check_at,
+            last_error = NULL,
+            issues_seen = excluded.issues_seen,
+            issues_added = excluded.issues_added
+        ",
+        params![
+            project_id,
+            checked_at,
+            next_check_at,
+            issues_seen as i64,
+            issues_added as i64
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn record_project_sync_failure(
+    conn: &Connection,
+    project_id: i64,
+    checked_at: &str,
+    next_check_at: &str,
+    error: &str,
+) -> WorkerResult<()> {
+    conn.execute(
+        "
+        INSERT INTO project_sync_states (
+            project_id, last_checked_at, last_success_at, next_check_at,
+            last_error, issues_seen, issues_added
+        )
+        VALUES (?1, ?2, NULL, ?3, ?4, 0, 0)
+        ON CONFLICT(project_id) DO UPDATE SET
+            last_checked_at = excluded.last_checked_at,
+            next_check_at = excluded.next_check_at,
+            last_error = excluded.last_error,
+            issues_seen = 0,
+            issues_added = 0
+        ",
+        params![project_id, checked_at, next_check_at, error],
+    )?;
+    Ok(())
 }
 
 pub fn latest_run(conn: &Connection) -> WorkerResult<Option<RunRecord>> {
@@ -462,6 +581,18 @@ fn run_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RunRecord> {
     })
 }
 
+fn sync_state_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProjectSyncState> {
+    Ok(ProjectSyncState {
+        project_id: row.get(0)?,
+        last_checked_at: row.get(1)?,
+        last_success_at: row.get(2)?,
+        next_check_at: row.get(3)?,
+        last_error: row.get(4)?,
+        issues_seen: row.get(5)?,
+        issues_added: row.get(6)?,
+    })
+}
+
 fn collect_rows<T>(
     rows: rusqlite::MappedRows<'_, impl FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<T>>,
 ) -> WorkerResult<Vec<T>> {
@@ -483,5 +614,51 @@ mod tests {
             insert_project(&conn, "Example", "/tmp/example", Some("owner/repo")).expect("project");
         assert_eq!(project.issue_label, "agent-task");
         assert_eq!(list_projects(&conn).expect("projects").len(), 1);
+    }
+
+    #[test]
+    fn records_sync_state_even_when_no_issues_seen() {
+        let conn = open_database(Path::new(":memory:")).expect("db");
+        let project = insert_project(&conn, "Example", "/tmp/example", None).expect("project");
+
+        record_project_sync_success(
+            &conn,
+            project.id,
+            "2026-01-01T00:00:00Z",
+            "2026-01-01T00:01:00Z",
+            0,
+            0,
+        )
+        .expect("record sync");
+
+        let state = get_project_sync_state(&conn, project.id)
+            .expect("state")
+            .expect("state exists");
+        assert_eq!(
+            state.last_checked_at.as_deref(),
+            Some("2026-01-01T00:00:00Z")
+        );
+        assert_eq!(
+            state.last_success_at.as_deref(),
+            Some("2026-01-01T00:00:00Z")
+        );
+        assert_eq!(state.issues_seen, 0);
+    }
+
+    #[test]
+    fn clamps_poll_interval_on_update() {
+        let conn = open_database(Path::new(":memory:")).expect("db");
+        let project =
+            insert_project(&conn, "Example", "/tmp/example", Some("owner/repo")).expect("project");
+        let updated = update_project(
+            &conn,
+            &ProjectUpdate {
+                poll_interval_seconds: 5,
+                ..ProjectUpdate::from(project)
+            },
+        )
+        .expect("update");
+
+        assert_eq!(updated.poll_interval_seconds, MIN_POLL_INTERVAL_SECONDS);
     }
 }

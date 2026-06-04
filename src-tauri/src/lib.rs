@@ -16,6 +16,7 @@ use std::sync::{
 use std::thread;
 use std::time::Duration;
 
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use rusqlite::Connection;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -55,12 +56,14 @@ fn app_status() -> AppStatus {
 fn check_worker_health(state: tauri::State<'_, AppState>) -> Result<WorkerHealth, String> {
     let status = app_status();
     let polling_active = state.poller_running.load(Ordering::SeqCst);
-    let (projects, last_sync_at, latest_run) = {
+    let (projects, last_sync_at, next_sync, latest_run, latest_sync_error) = {
         let conn = state.db.lock().expect("db lock");
         (
             db::list_projects(&conn).map_err(String::from)?,
             db::last_issue_sync_at(&conn).map_err(String::from)?,
+            db::next_project_check_at(&conn).map_err(String::from)?,
             db::latest_run(&conn).map_err(String::from)?,
+            db::latest_sync_error(&conn).map_err(String::from)?,
         )
     };
 
@@ -96,6 +99,11 @@ fn check_worker_health(state: tauri::State<'_, AppState>) -> Result<WorkerHealth
             "Complete setup".to_string(),
             Some("Install Codex or Claude CLI before running tasks.".to_string()),
         )
+    } else if let Some(error) = latest_sync_error {
+        (
+            "Sync now".to_string(),
+            Some(format!("Issue sync needs attention: {error}")),
+        )
     } else if failed_run_count > 0
         || latest_run
             .as_ref()
@@ -118,7 +126,7 @@ fn check_worker_health(state: tauri::State<'_, AppState>) -> Result<WorkerHealth
         open_task_count,
         failed_run_count,
         last_sync_at,
-        next_sync: polling_active.then(|| "within 60 seconds".to_string()),
+        next_sync: polling_active.then_some(next_sync).flatten(),
         codex_available: status.codex_available,
         claude_available: status.claude_available,
         gh_available: status.gh_available,
@@ -249,12 +257,9 @@ fn sync_github_issues(
     project_id: i64,
     state: tauri::State<'_, AppState>,
 ) -> Result<SyncResult, String> {
-    if !git::command_exists("gh") {
-        return Err("gh CLI is not available".to_string());
-    }
     let conn = state.db.lock().expect("db lock");
     let project = db::get_project(&conn, project_id).map_err(String::from)?;
-    github::sync_issues(&conn, &project).map_err(Into::into)
+    sync_project_issues(&conn, &project).map_err(Into::into)
 }
 
 #[tauri::command]
@@ -277,15 +282,14 @@ fn start_polling(app: AppHandle) -> Result<(), String> {
     let running = state.poller_running.clone();
     thread::spawn(move || {
         while running.load(Ordering::SeqCst) {
-            if let Err(error) = poll_once(&app_for_thread) {
-                eprintln!("Local Worker poll failed: {error}");
-            }
-            for _ in 0..60 {
-                if !running.load(Ordering::SeqCst) {
-                    break;
+            let sleep_for = match poll_due_projects(&app_for_thread) {
+                Ok(duration) => duration,
+                Err(error) => {
+                    eprintln!("Local Worker poll failed: {error}");
+                    Duration::from_secs(5)
                 }
-                thread::sleep(Duration::from_secs(1));
-            }
+            };
+            sleep_interruptibly(&running, sleep_for);
         }
     });
     Ok(())
@@ -303,35 +307,154 @@ fn set_autostart(enabled: bool) -> Result<bool, String> {
     autostart::set_enabled(enabled).map_err(Into::into)
 }
 
-fn poll_once(app: &AppHandle) -> WorkerResult<()> {
-    if !git::command_exists("gh") {
-        return Ok(());
-    }
-
-    let projects = {
+fn poll_due_projects(app: &AppHandle) -> WorkerResult<Duration> {
+    let due_projects = {
         let state = app.state::<AppState>();
         let conn = state.db.lock().expect("db lock");
-        db::list_projects(&conn)?
+        let projects = db::list_projects(&conn)?;
+        let now = Utc::now();
+        let mut due = Vec::new();
+        for project in projects {
+            if project_is_due(&conn, &project, now)? {
+                due.push(project);
+            }
+        }
+        due
     };
 
-    for project in projects.into_iter().filter(|project| project.auto_run) {
-        {
+    for project in due_projects {
+        let sync_result = {
             let state = app.state::<AppState>();
             let conn = state.db.lock().expect("db lock");
-            if db::has_running_run(&conn, project.id)? {
-                continue;
-            }
-            let _ = github::sync_issues(&conn, &project);
+            sync_project_issues(&conn, &project)
+        };
+
+        if let Err(error) = sync_result {
+            eprintln!(
+                "Local Worker issue sync failed for {}: {error}",
+                project.name
+            );
+            continue;
         }
 
-        let maybe_task = tasks::first_open_task(Path::new(&project.path))?;
-        if maybe_task.is_some() {
-            if let Err(error) = start_project_run(app, project.id) {
-                eprintln!("Local Worker run start failed: {error}");
+        if project.auto_run {
+            let has_running_run = {
+                let state = app.state::<AppState>();
+                let conn = state.db.lock().expect("db lock");
+                db::has_running_run(&conn, project.id)?
+            };
+            if has_running_run {
+                continue;
+            }
+
+            let maybe_task = tasks::first_open_task(Path::new(&project.path))?;
+            if maybe_task.is_some() {
+                if let Err(error) = start_project_run(app, project.id) {
+                    eprintln!("Local Worker run start failed: {error}");
+                }
             }
         }
     }
-    Ok(())
+
+    next_poll_sleep(app)
+}
+
+fn sync_project_issues(conn: &Connection, project: &Project) -> WorkerResult<SyncResult> {
+    let checked_at = Utc::now();
+    let checked_at_text = checked_at.to_rfc3339();
+    let next_check_at = next_check_at(project, checked_at).to_rfc3339();
+
+    let result = if git::command_exists("gh") {
+        github::sync_issues(conn, project)
+    } else {
+        Err(WorkerError::Message("gh CLI is not available".to_string()))
+    };
+
+    match result {
+        Ok(sync_result) => {
+            db::record_project_sync_success(
+                conn,
+                project.id,
+                &checked_at_text,
+                &next_check_at,
+                sync_result.issues_seen,
+                sync_result.added,
+            )?;
+            Ok(sync_result)
+        }
+        Err(error) => {
+            db::record_project_sync_failure(
+                conn,
+                project.id,
+                &checked_at_text,
+                &next_check_at,
+                &error.to_string(),
+            )?;
+            Err(error)
+        }
+    }
+}
+
+fn project_is_due(conn: &Connection, project: &Project, now: DateTime<Utc>) -> WorkerResult<bool> {
+    let Some(state) = db::get_project_sync_state(conn, project.id)? else {
+        return Ok(true);
+    };
+    let Some(next_check_at) = state.next_check_at.as_deref() else {
+        return Ok(true);
+    };
+    Ok(match parse_rfc3339(next_check_at) {
+        Some(due_at) => due_at <= now,
+        None => true,
+    })
+}
+
+fn next_poll_sleep(app: &AppHandle) -> WorkerResult<Duration> {
+    let now = Utc::now();
+    let mut shortest: Option<Duration> = None;
+    let state = app.state::<AppState>();
+    let conn = state.db.lock().expect("db lock");
+    let projects = db::list_projects(&conn)?;
+
+    if projects.is_empty() {
+        return Ok(Duration::from_secs(5));
+    }
+
+    for project in projects {
+        let wait = match db::get_project_sync_state(&conn, project.id)? {
+            Some(sync_state) => match sync_state.next_check_at.as_deref().and_then(parse_rfc3339) {
+                Some(next_at) if next_at > now => (next_at - now)
+                    .to_std()
+                    .unwrap_or_else(|_| Duration::from_secs(1)),
+                _ => Duration::from_secs(1),
+            },
+            None => Duration::from_secs(1),
+        };
+        shortest = Some(shortest.map_or(wait, |current| current.min(wait)));
+    }
+
+    Ok(shortest
+        .unwrap_or_else(|| Duration::from_secs(5))
+        .clamp(Duration::from_secs(1), Duration::from_secs(30)))
+}
+
+fn next_check_at(project: &Project, checked_at: DateTime<Utc>) -> DateTime<Utc> {
+    checked_at + ChronoDuration::seconds(project.safe_poll_interval_seconds())
+}
+
+fn parse_rfc3339(value: &str) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(value)
+        .ok()
+        .map(|value| value.with_timezone(&Utc))
+}
+
+fn sleep_interruptibly(running: &AtomicBool, duration: Duration) {
+    let duration = duration.clamp(Duration::from_secs(1), Duration::from_secs(30));
+    let mut slept = Duration::ZERO;
+    while running.load(Ordering::SeqCst) && slept < duration {
+        let step = Duration::from_secs(1).min(duration - slept);
+        thread::sleep(step);
+        slept += step;
+    }
 }
 
 fn start_project_run(app: &AppHandle, project_id: i64) -> WorkerResult<RunRecord> {
@@ -429,4 +552,85 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
         })
         .build(app)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::env;
+    use std::ffi::OsString;
+    use std::fs;
+
+    use tempfile::tempdir;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    struct PathGuard {
+        original: Option<OsString>,
+    }
+
+    impl Drop for PathGuard {
+        fn drop(&mut self) {
+            if let Some(original) = self.original.as_ref() {
+                env::set_var("PATH", original);
+            } else {
+                env::remove_var("PATH");
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    fn make_executable(path: &Path) {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut permissions = fs::metadata(path).expect("metadata").permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(path, permissions).expect("chmod");
+    }
+
+    #[test]
+    fn sync_project_issues_records_success_for_empty_issue_list() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        let original_path = env::var_os("PATH");
+        let path_guard = PathGuard {
+            original: original_path.clone(),
+        };
+        let temp = tempdir().expect("tempdir");
+        let bin_dir = temp.path().join("bin");
+        fs::create_dir(&bin_dir).expect("bin dir");
+        let fake_gh = bin_dir.join("gh");
+        fs::write(
+            &fake_gh,
+            "#!/bin/sh\nif [ \"$1\" = \"issue\" ] && [ \"$2\" = \"list\" ]; then\n  printf '[]\\n'\n  exit 0\nfi\nexit 1\n",
+        )
+        .expect("fake gh");
+        make_executable(&fake_gh);
+
+        let new_path = match original_path {
+            Some(path) => format!("{}:{}", bin_dir.display(), path.to_string_lossy()),
+            None => bin_dir.to_string_lossy().to_string(),
+        };
+        env::set_var("PATH", new_path);
+
+        let project_dir = temp.path().join("project");
+        fs::create_dir(&project_dir).expect("project dir");
+        let conn = db::open_database(Path::new(":memory:")).expect("db");
+        let project = db::insert_project(&conn, "Example", &project_dir.to_string_lossy(), None)
+            .expect("project");
+
+        let result = sync_project_issues(&conn, &project).expect("sync");
+        assert_eq!(result.issues_seen, 0);
+        assert_eq!(result.added, 0);
+
+        let state = db::get_project_sync_state(&conn, project.id)
+            .expect("state")
+            .expect("state exists");
+        assert!(state.last_checked_at.is_some());
+        assert!(state.last_success_at.is_some());
+        assert!(state.next_check_at.is_some());
+        assert!(state.last_error.is_none());
+
+        drop(path_guard);
+    }
 }
