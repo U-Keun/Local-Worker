@@ -62,6 +62,43 @@ pub struct LogLine {
     pub line: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatSession {
+    pub id: i64,
+    pub project_id: i64,
+    pub run_id: Option<i64>,
+    pub backend: String,
+    pub title: String,
+    pub status: String,
+    pub native_session_id: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatMessage {
+    pub id: i64,
+    pub session_id: i64,
+    pub role: String,
+    pub content: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatTurn {
+    pub id: i64,
+    pub session_id: i64,
+    pub status: String,
+    pub backend: String,
+    pub user_message: String,
+    pub assistant_message: Option<String>,
+    pub test_command: String,
+    pub test_status: Option<i64>,
+    pub summary: Option<String>,
+    pub started_at: String,
+    pub finished_at: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct AppStatus {
     pub codex_available: bool,
@@ -98,6 +135,20 @@ pub struct CreateProjectRequest {
     pub agent_backend: Option<String>,
     pub issue_label: Option<String>,
     pub branch_prefix: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateChatSessionRequest {
+    pub project_id: i64,
+    pub run_id: Option<i64>,
+    pub backend: Option<String>,
+    pub title: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SendChatMessageRequest {
+    pub session_id: i64,
+    pub content: String,
 }
 
 impl CreateProjectRequest {
@@ -173,6 +224,26 @@ pub struct RunLogEvent {
 #[derive(Debug, Clone, Serialize)]
 pub struct RunUpdatedEvent {
     pub run_id: i64,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ChatLogEvent {
+    pub turn_id: i64,
+    pub stream: String,
+    pub line: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ChatMessageEvent {
+    pub session_id: i64,
+    pub message: ChatMessage,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ChatTurnUpdatedEvent {
+    pub turn_id: i64,
+    pub session_id: i64,
     pub status: String,
 }
 

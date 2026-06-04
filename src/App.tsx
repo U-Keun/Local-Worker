@@ -16,7 +16,8 @@ import {
   Terminal,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { api } from "./api";
+import { api, isTauriRuntime } from "./api";
+import { AgentChatPanel } from "./components/AgentChatPanel";
 import { SetupWizard } from "./components/SetupWizard";
 import { WorkerHealthStrip } from "./components/WorkerHealthStrip";
 import type {
@@ -233,6 +234,7 @@ export default function App() {
   useEffect(() => {
     refresh().catch((error) => setMessage(String(error)));
     api.startPolling().catch((error) => setMessage(String(error)));
+    if (!isTauriRuntime()) return;
 
     const unlistenLog = listen<RunLogEvent>("run-log", (event) => {
       if (event.payload.run_id === selectedRunId) {
@@ -488,19 +490,29 @@ export default function App() {
             </div>
           </section>
 
-          <section className="log-panel">
-            <div className="panel-heading">
-              <div>
-                <h3>Execution Log</h3>
-                <p>
-                  {selectedRun
-                    ? `${selectedRun.task_id ?? "manual"} · ${selectedRun.branch ?? "no branch"} · ${formatDate(selectedRun.finished_at)}`
-                    : "Select a run to inspect output."}
-                </p>
+          <section className="side-stack">
+            <section className="log-panel">
+              <div className="panel-heading">
+                <div>
+                  <h3>Execution Log</h3>
+                  <p>
+                    {selectedRun
+                      ? `${selectedRun.task_id ?? "manual"} · ${selectedRun.branch ?? "no branch"} · ${formatDate(selectedRun.finished_at)}`
+                      : "Select a run to inspect output."}
+                  </p>
+                </div>
+                <Terminal size={16} />
               </div>
-              <Terminal size={16} />
-            </div>
-            <pre>{logs.join("\n")}</pre>
+              <pre>{logs.join("\n")}</pre>
+            </section>
+
+            <AgentChatPanel
+              project={selectedProject}
+              selectedRun={selectedRun}
+              status={status}
+              disabled={busy}
+              onError={setMessage}
+            />
           </section>
 
           <section className="settings-strip">

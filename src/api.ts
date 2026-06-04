@@ -10,10 +10,28 @@ import type {
   WorkerHealth,
   ProjectSetupCheck,
   ProjectCreationPreview,
+  ChatSession,
+  ChatMessage,
+  ChatTurn,
+  CreateChatSessionRequest,
+  SendChatMessageRequest,
 } from "./types";
 
-function isTauriRuntime() {
-  return "__TAURI_INTERNALS__" in window;
+export function isTauriRuntime() {
+  const tauriInternals = (
+    window as Window & {
+      __TAURI_INTERNALS__?: {
+        invoke?: unknown;
+        transformCallback?: unknown;
+      };
+    }
+  ).__TAURI_INTERNALS__;
+
+  return Boolean(
+    tauriInternals &&
+      typeof tauriInternals.invoke === "function" &&
+      typeof tauriInternals.transformCallback === "function",
+  );
 }
 
 function requireTauri<T>(action: string): Promise<T> {
@@ -161,6 +179,30 @@ export const api = {
     isTauriRuntime()
       ? invoke<RunRecord>("run_next_task", { projectId })
       : requireTauri<RunRecord>("Task runs"),
+  listChatSessions: (projectId: number) =>
+    isTauriRuntime()
+      ? invoke<ChatSession[]>("list_chat_sessions", { projectId })
+      : Promise.resolve([]),
+  createChatSession: (request: CreateChatSessionRequest) =>
+    isTauriRuntime()
+      ? invoke<ChatSession>("create_chat_session", { request })
+      : requireTauri<ChatSession>("Agent chat"),
+  listChatMessages: (sessionId: number) =>
+    isTauriRuntime()
+      ? invoke<ChatMessage[]>("list_chat_messages", { sessionId })
+      : Promise.resolve([]),
+  listChatTurns: (sessionId: number) =>
+    isTauriRuntime()
+      ? invoke<ChatTurn[]>("list_chat_turns", { sessionId })
+      : Promise.resolve([]),
+  getActiveChatTurn: (projectId: number) =>
+    isTauriRuntime()
+      ? invoke<ChatTurn | null>("get_active_chat_turn", { projectId })
+      : Promise.resolve(null),
+  sendChatMessage: (request: SendChatMessageRequest) =>
+    isTauriRuntime()
+      ? invoke<ChatTurn>("send_chat_message", { request })
+      : requireTauri<ChatTurn>("Agent chat"),
   startPolling: () =>
     isTauriRuntime() ? invoke<void>("start_polling") : Promise.resolve(),
   stopPolling: () =>

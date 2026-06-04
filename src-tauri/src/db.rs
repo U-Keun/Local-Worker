@@ -5,8 +5,8 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::errors::WorkerResult;
 use crate::models::{
-    LogLine, Project, ProjectSyncState, ProjectUpdate, QueuedTask, RunRecord,
-    MIN_POLL_INTERVAL_SECONDS,
+    ChatMessage, ChatSession, ChatTurn, LogLine, Project, ProjectSyncState, ProjectUpdate,
+    QueuedTask, RunRecord, MIN_POLL_INTERVAL_SECONDS,
 };
 
 pub fn now() -> String {
@@ -97,6 +97,44 @@ pub fn open_database(path: &Path) -> WorkerResult<Connection> {
             stream TEXT NOT NULL,
             line TEXT NOT NULL,
             FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS chat_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL,
+            run_id INTEGER,
+            backend TEXT NOT NULL,
+            title TEXT NOT NULL,
+            status TEXT NOT NULL,
+            native_session_id TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+            FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE SET NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS chat_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS chat_turns (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            backend TEXT NOT NULL,
+            user_message TEXT NOT NULL,
+            assistant_message TEXT,
+            test_command TEXT NOT NULL,
+            test_status INTEGER,
+            summary TEXT,
+            started_at TEXT NOT NULL,
+            finished_at TEXT,
+            FOREIGN KEY(session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
         );
         ",
     )?;
@@ -546,6 +584,229 @@ pub fn list_logs(conn: &Connection, run_id: i64) -> WorkerResult<Vec<LogLine>> {
     collect_rows(rows)
 }
 
+pub fn insert_chat_session(
+    conn: &Connection,
+    project_id: i64,
+    run_id: Option<i64>,
+    backend: &str,
+    title: &str,
+    native_session_id: Option<&str>,
+) -> WorkerResult<ChatSession> {
+    let ts = now();
+    conn.execute(
+        "
+        INSERT INTO chat_sessions (
+            project_id, run_id, backend, title, status, native_session_id, created_at, updated_at
+        )
+        VALUES (?1, ?2, ?3, ?4, 'open', ?5, ?6, ?6)
+        ",
+        params![project_id, run_id, backend, title, native_session_id, ts],
+    )?;
+    get_chat_session(conn, conn.last_insert_rowid())
+}
+
+pub fn get_chat_session(conn: &Connection, session_id: i64) -> WorkerResult<ChatSession> {
+    conn.query_row(
+        "
+        SELECT id, project_id, run_id, backend, title, status, native_session_id,
+               created_at, updated_at
+        FROM chat_sessions
+        WHERE id = ?1
+        ",
+        [session_id],
+        chat_session_from_row,
+    )
+    .map_err(Into::into)
+}
+
+pub fn list_chat_sessions(conn: &Connection, project_id: i64) -> WorkerResult<Vec<ChatSession>> {
+    let mut stmt = conn.prepare(
+        "
+        SELECT id, project_id, run_id, backend, title, status, native_session_id,
+               created_at, updated_at
+        FROM chat_sessions
+        WHERE project_id = ?1
+        ORDER BY updated_at DESC, id DESC
+        LIMIT 50
+        ",
+    )?;
+    let rows = stmt.query_map([project_id], chat_session_from_row)?;
+    collect_rows(rows)
+}
+
+pub fn update_chat_session_native_id(
+    conn: &Connection,
+    session_id: i64,
+    native_session_id: &str,
+) -> WorkerResult<()> {
+    conn.execute(
+        "
+        UPDATE chat_sessions
+        SET native_session_id = ?1,
+            updated_at = ?2
+        WHERE id = ?3
+        ",
+        params![native_session_id, now(), session_id],
+    )?;
+    Ok(())
+}
+
+pub fn touch_chat_session(conn: &Connection, session_id: i64) -> WorkerResult<()> {
+    conn.execute(
+        "UPDATE chat_sessions SET updated_at = ?1 WHERE id = ?2",
+        params![now(), session_id],
+    )?;
+    Ok(())
+}
+
+pub fn insert_chat_message(
+    conn: &Connection,
+    session_id: i64,
+    role: &str,
+    content: &str,
+) -> WorkerResult<ChatMessage> {
+    conn.execute(
+        "
+        INSERT INTO chat_messages (session_id, role, content, created_at)
+        VALUES (?1, ?2, ?3, ?4)
+        ",
+        params![session_id, role, content, now()],
+    )?;
+    touch_chat_session(conn, session_id)?;
+    get_chat_message(conn, conn.last_insert_rowid())
+}
+
+pub fn get_chat_message(conn: &Connection, message_id: i64) -> WorkerResult<ChatMessage> {
+    conn.query_row(
+        "
+        SELECT id, session_id, role, content, created_at
+        FROM chat_messages
+        WHERE id = ?1
+        ",
+        [message_id],
+        chat_message_from_row,
+    )
+    .map_err(Into::into)
+}
+
+pub fn list_chat_messages(conn: &Connection, session_id: i64) -> WorkerResult<Vec<ChatMessage>> {
+    let mut stmt = conn.prepare(
+        "
+        SELECT id, session_id, role, content, created_at
+        FROM chat_messages
+        WHERE session_id = ?1
+        ORDER BY id ASC
+        LIMIT 400
+        ",
+    )?;
+    let rows = stmt.query_map([session_id], chat_message_from_row)?;
+    collect_rows(rows)
+}
+
+pub fn insert_chat_turn(
+    conn: &Connection,
+    session_id: i64,
+    backend: &str,
+    user_message: &str,
+    test_command: &str,
+) -> WorkerResult<ChatTurn> {
+    conn.execute(
+        "
+        INSERT INTO chat_turns (
+            session_id, status, backend, user_message, test_command, started_at
+        )
+        VALUES (?1, 'running', ?2, ?3, ?4, ?5)
+        ",
+        params![session_id, backend, user_message, test_command, now()],
+    )?;
+    touch_chat_session(conn, session_id)?;
+    get_chat_turn(conn, conn.last_insert_rowid())
+}
+
+pub fn get_chat_turn(conn: &Connection, turn_id: i64) -> WorkerResult<ChatTurn> {
+    conn.query_row(
+        "
+        SELECT id, session_id, status, backend, user_message, assistant_message,
+               test_command, test_status, summary, started_at, finished_at
+        FROM chat_turns
+        WHERE id = ?1
+        ",
+        [turn_id],
+        chat_turn_from_row,
+    )
+    .map_err(Into::into)
+}
+
+pub fn list_chat_turns(conn: &Connection, session_id: i64) -> WorkerResult<Vec<ChatTurn>> {
+    let mut stmt = conn.prepare(
+        "
+        SELECT id, session_id, status, backend, user_message, assistant_message,
+               test_command, test_status, summary, started_at, finished_at
+        FROM chat_turns
+        WHERE session_id = ?1
+        ORDER BY id DESC
+        LIMIT 100
+        ",
+    )?;
+    let rows = stmt.query_map([session_id], chat_turn_from_row)?;
+    collect_rows(rows)
+}
+
+pub fn finish_chat_turn(
+    conn: &Connection,
+    turn_id: i64,
+    status: &str,
+    assistant_message: &str,
+    test_status: Option<i64>,
+    summary: &str,
+) -> WorkerResult<()> {
+    let turn = get_chat_turn(conn, turn_id)?;
+    conn.execute(
+        "
+        UPDATE chat_turns
+        SET status = ?1,
+            assistant_message = ?2,
+            test_status = ?3,
+            summary = ?4,
+            finished_at = ?5
+        WHERE id = ?6
+        ",
+        params![
+            status,
+            assistant_message,
+            test_status,
+            summary,
+            now(),
+            turn_id
+        ],
+    )?;
+    touch_chat_session(conn, turn.session_id)?;
+    Ok(())
+}
+
+pub fn get_active_chat_turn(conn: &Connection, project_id: i64) -> WorkerResult<Option<ChatTurn>> {
+    conn.query_row(
+        "
+        SELECT ct.id, ct.session_id, ct.status, ct.backend, ct.user_message,
+               ct.assistant_message, ct.test_command, ct.test_status, ct.summary,
+               ct.started_at, ct.finished_at
+        FROM chat_turns ct
+        JOIN chat_sessions cs ON cs.id = ct.session_id
+        WHERE cs.project_id = ?1 AND ct.status = 'running'
+        ORDER BY ct.id DESC
+        LIMIT 1
+        ",
+        [project_id],
+        chat_turn_from_row,
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+pub fn has_active_chat_turn(conn: &Connection, project_id: i64) -> WorkerResult<bool> {
+    Ok(get_active_chat_turn(conn, project_id)?.is_some())
+}
+
 fn project_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Project> {
     Ok(Project {
         id: row.get(0)?,
@@ -590,6 +851,46 @@ fn sync_state_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProjectSyncS
         last_error: row.get(4)?,
         issues_seen: row.get(5)?,
         issues_added: row.get(6)?,
+    })
+}
+
+fn chat_session_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ChatSession> {
+    Ok(ChatSession {
+        id: row.get(0)?,
+        project_id: row.get(1)?,
+        run_id: row.get(2)?,
+        backend: row.get(3)?,
+        title: row.get(4)?,
+        status: row.get(5)?,
+        native_session_id: row.get(6)?,
+        created_at: row.get(7)?,
+        updated_at: row.get(8)?,
+    })
+}
+
+fn chat_message_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ChatMessage> {
+    Ok(ChatMessage {
+        id: row.get(0)?,
+        session_id: row.get(1)?,
+        role: row.get(2)?,
+        content: row.get(3)?,
+        created_at: row.get(4)?,
+    })
+}
+
+fn chat_turn_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ChatTurn> {
+    Ok(ChatTurn {
+        id: row.get(0)?,
+        session_id: row.get(1)?,
+        status: row.get(2)?,
+        backend: row.get(3)?,
+        user_message: row.get(4)?,
+        assistant_message: row.get(5)?,
+        test_command: row.get(6)?,
+        test_status: row.get(7)?,
+        summary: row.get(8)?,
+        started_at: row.get(9)?,
+        finished_at: row.get(10)?,
     })
 }
 
@@ -660,5 +961,49 @@ mod tests {
         .expect("update");
 
         assert_eq!(updated.poll_interval_seconds, MIN_POLL_INTERVAL_SECONDS);
+    }
+
+    #[test]
+    fn creates_chat_session_message_and_turn() {
+        let conn = open_database(Path::new(":memory:")).expect("db");
+        let project = insert_project(&conn, "Example", "/tmp/example", None).expect("project");
+        let session = insert_chat_session(&conn, project.id, None, "codex", "Project chat", None)
+            .expect("session");
+        let message = insert_chat_message(&conn, session.id, "user", "Hello").expect("message");
+        let turn = insert_chat_turn(&conn, session.id, "codex", "Hello", "echo ok").expect("turn");
+
+        assert_eq!(
+            list_chat_sessions(&conn, project.id)
+                .expect("sessions")
+                .len(),
+            1
+        );
+        assert_eq!(
+            list_chat_messages(&conn, session.id).expect("messages")[0].id,
+            message.id
+        );
+        assert_eq!(
+            list_chat_turns(&conn, session.id).expect("turns")[0].id,
+            turn.id
+        );
+        assert!(has_active_chat_turn(&conn, project.id).expect("active"));
+    }
+
+    #[test]
+    fn creates_run_linked_chat_session() {
+        let conn = open_database(Path::new(":memory:")).expect("db");
+        let project = insert_project(&conn, "Example", "/tmp/example", None).expect("project");
+        let run = insert_run(&conn, project.id, Some("TODO-001"), "codex", "echo ok").expect("run");
+        let session = insert_chat_session(
+            &conn,
+            project.id,
+            Some(run.id),
+            "codex",
+            "Discuss TODO-001",
+            None,
+        )
+        .expect("session");
+
+        assert_eq!(session.run_id, Some(run.id));
     }
 }

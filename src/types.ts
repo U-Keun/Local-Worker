@@ -118,3 +118,66 @@ export interface RunUpdatedEvent {
   run_id: number;
   status: string;
 }
+
+export interface ChatSession {
+  id: number;
+  project_id: number;
+  run_id: number | null;
+  backend: AgentBackend;
+  title: string;
+  status: string;
+  native_session_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChatMessage {
+  id: number;
+  session_id: number;
+  role: "user" | "assistant" | "system";
+  content: string;
+  created_at: string;
+}
+
+export interface ChatTurn {
+  id: number;
+  session_id: number;
+  status: string;
+  backend: AgentBackend;
+  user_message: string;
+  assistant_message: string | null;
+  test_command: string;
+  test_status: number | null;
+  summary: string | null;
+  started_at: string;
+  finished_at: string | null;
+}
+
+export interface CreateChatSessionRequest {
+  project_id: number;
+  run_id?: number | null;
+  backend?: AgentBackend;
+  title?: string;
+}
+
+export interface SendChatMessageRequest {
+  session_id: number;
+  content: string;
+}
+
+export interface ChatLogEvent {
+  turn_id: number;
+  stream: string;
+  line: string;
+}
+
+export interface ChatMessageEvent {
+  session_id: number;
+  message: ChatMessage;
+}
+
+export interface ChatTurnUpdatedEvent {
+  turn_id: number;
+  session_id: number;
+  status: string;
+}

@@ -1,4 +1,5 @@
 mod autostart;
+mod chat;
 mod db;
 mod errors;
 mod git;
@@ -20,12 +21,13 @@ use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use rusqlite::Connection;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::errors::{WorkerError, WorkerResult};
 use crate::models::{
-    AppStatus, CreateProjectRequest, Project, ProjectCreationPreview, ProjectSetupCheck,
-    ProjectUpdate, QueuedTask, RunRecord, SyncResult, WorkerHealth,
+    AppStatus, ChatMessage, ChatMessageEvent, ChatSession, ChatTurn, CreateChatSessionRequest,
+    CreateProjectRequest, Project, ProjectCreationPreview, ProjectSetupCheck, ProjectUpdate,
+    QueuedTask, RunRecord, SendChatMessageRequest, SyncResult, WorkerHealth,
 };
 
 pub struct AppState {
@@ -253,6 +255,118 @@ fn list_logs(
 }
 
 #[tauri::command]
+fn list_chat_sessions(
+    project_id: i64,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<ChatSession>, String> {
+    let conn = state.db.lock().expect("db lock");
+    db::list_chat_sessions(&conn, project_id).map_err(Into::into)
+}
+
+#[tauri::command]
+fn create_chat_session(
+    request: CreateChatSessionRequest,
+    state: tauri::State<'_, AppState>,
+) -> Result<ChatSession, String> {
+    let conn = state.db.lock().expect("db lock");
+    let project = db::get_project(&conn, request.project_id).map_err(String::from)?;
+    let backend = normalize_backend(request.backend.as_deref(), &project.agent_backend);
+    let title = request
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(if request.run_id.is_some() {
+            "Run discussion"
+        } else {
+            "Project chat"
+        });
+    let native_session_id = if backend == "claude" {
+        Some(uuid::Uuid::new_v4().to_string())
+    } else {
+        None
+    };
+    db::insert_chat_session(
+        &conn,
+        request.project_id,
+        request.run_id,
+        &backend,
+        title,
+        native_session_id.as_deref(),
+    )
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+fn list_chat_messages(
+    session_id: i64,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<ChatMessage>, String> {
+    let conn = state.db.lock().expect("db lock");
+    db::list_chat_messages(&conn, session_id).map_err(Into::into)
+}
+
+#[tauri::command]
+fn list_chat_turns(
+    session_id: i64,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<ChatTurn>, String> {
+    let conn = state.db.lock().expect("db lock");
+    db::list_chat_turns(&conn, session_id).map_err(Into::into)
+}
+
+#[tauri::command]
+fn get_active_chat_turn(
+    project_id: i64,
+    state: tauri::State<'_, AppState>,
+) -> Result<Option<ChatTurn>, String> {
+    let conn = state.db.lock().expect("db lock");
+    db::get_active_chat_turn(&conn, project_id).map_err(Into::into)
+}
+
+#[tauri::command]
+fn send_chat_message(app: AppHandle, request: SendChatMessageRequest) -> Result<ChatTurn, String> {
+    let content = request.content.trim().to_string();
+    if content.is_empty() {
+        return Err("message is required".to_string());
+    }
+
+    let state = app.state::<AppState>();
+    let (session, project, turn) = {
+        let conn = state.db.lock().expect("db lock");
+        let session = db::get_chat_session(&conn, request.session_id).map_err(String::from)?;
+        let project = db::get_project(&conn, session.project_id).map_err(String::from)?;
+        if db::has_running_run(&conn, project.id).map_err(String::from)? {
+            return Err("a run is already active for this project".to_string());
+        }
+        if db::has_active_chat_turn(&conn, project.id).map_err(String::from)? {
+            return Err("a chat turn is already active for this project".to_string());
+        }
+        let user_message =
+            db::insert_chat_message(&conn, session.id, "user", &content).map_err(String::from)?;
+        let turn = db::insert_chat_turn(
+            &conn,
+            session.id,
+            &session.backend,
+            &content,
+            &project.test_command,
+        )
+        .map_err(String::from)?;
+        let _ = app.emit(
+            "chat-message",
+            ChatMessageEvent {
+                session_id: session.id,
+                message: user_message,
+            },
+        );
+        (session, project, turn)
+    };
+
+    chat::spawn_chat_turn(app, session, project, turn.id);
+    Ok(turn)
+}
+
+#[tauri::command]
 fn sync_github_issues(
     project_id: i64,
     state: tauri::State<'_, AppState>,
@@ -338,12 +452,13 @@ fn poll_due_projects(app: &AppHandle) -> WorkerResult<Duration> {
         }
 
         if project.auto_run {
-            let has_running_run = {
+            let busy = {
                 let state = app.state::<AppState>();
                 let conn = state.db.lock().expect("db lock");
                 db::has_running_run(&conn, project.id)?
+                    || db::has_active_chat_turn(&conn, project.id)?
             };
-            if has_running_run {
+            if busy {
                 continue;
             }
 
@@ -467,6 +582,11 @@ fn start_project_run(app: &AppHandle, project_id: i64) -> WorkerResult<RunRecord
                 "a run is already active for this project".to_string(),
             ));
         }
+        if db::has_active_chat_turn(&conn, project_id)? {
+            return Err(WorkerError::Message(
+                "a chat turn is already active for this project".to_string(),
+            ));
+        }
 
         let dirty = git::dirty_non_task_files(Path::new(&project.path))?;
         if !dirty.is_empty() {
@@ -520,6 +640,12 @@ pub fn run() {
             list_tasks,
             list_runs,
             list_logs,
+            list_chat_sessions,
+            create_chat_session,
+            list_chat_messages,
+            send_chat_message,
+            list_chat_turns,
+            get_active_chat_turn,
             sync_github_issues,
             run_next_task,
             start_polling,
@@ -528,6 +654,15 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running Local Worker");
+}
+
+fn normalize_backend(value: Option<&str>, fallback: &str) -> String {
+    match value.map(str::trim).filter(|value| !value.is_empty()) {
+        Some("claude") => "claude".to_string(),
+        Some("codex") => "codex".to_string(),
+        _ if fallback == "claude" => "claude".to_string(),
+        _ => "codex".to_string(),
+    }
 }
 
 fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
