@@ -23,7 +23,8 @@ use tauri::{AppHandle, Manager};
 
 use crate::errors::{WorkerError, WorkerResult};
 use crate::models::{
-    AppStatus, CreateProjectRequest, Project, ProjectUpdate, QueuedTask, RunRecord, SyncResult,
+    AppStatus, CreateProjectRequest, Project, ProjectCreationPreview, ProjectSetupCheck,
+    ProjectUpdate, QueuedTask, RunRecord, SyncResult, WorkerHealth,
 };
 
 pub struct AppState {
@@ -48,6 +49,94 @@ fn app_status() -> AppStatus {
         gh_available: git::command_exists("gh"),
         autostart_enabled: autostart::is_enabled(),
     }
+}
+
+#[tauri::command]
+fn check_worker_health(state: tauri::State<'_, AppState>) -> Result<WorkerHealth, String> {
+    let status = app_status();
+    let polling_active = state.poller_running.load(Ordering::SeqCst);
+    let (projects, last_sync_at, latest_run) = {
+        let conn = state.db.lock().expect("db lock");
+        (
+            db::list_projects(&conn).map_err(String::from)?,
+            db::last_issue_sync_at(&conn).map_err(String::from)?,
+            db::latest_run(&conn).map_err(String::from)?,
+        )
+    };
+
+    let mut open_task_count = 0usize;
+    let mut running_count = 0usize;
+    let mut failed_run_count = 0usize;
+    {
+        let conn = state.db.lock().expect("db lock");
+        for project in &projects {
+            if let Ok(tasks) = tasks::read_tasks(Path::new(&project.path)) {
+                open_task_count += tasks.iter().filter(|task| task.status == "open").count();
+            }
+            if let Ok(runs) = db::list_runs(&conn, project.id) {
+                running_count += runs.iter().filter(|run| run.status == "running").count();
+                failed_run_count += runs.iter().filter(|run| run.status == "failed").count();
+            }
+        }
+    }
+
+    let missing_backend = !status.codex_available && !status.claude_available;
+    let (primary_action, intervention_reason) = if projects.is_empty() {
+        (
+            "Complete setup".to_string(),
+            Some("No project is registered yet.".to_string()),
+        )
+    } else if !status.gh_available {
+        (
+            "Complete setup".to_string(),
+            Some("gh CLI is required for issue sync and PR creation.".to_string()),
+        )
+    } else if missing_backend {
+        (
+            "Complete setup".to_string(),
+            Some("Install Codex or Claude CLI before running tasks.".to_string()),
+        )
+    } else if failed_run_count > 0
+        || latest_run
+            .as_ref()
+            .is_some_and(|run| run.status == "failed")
+    {
+        (
+            "Review failure".to_string(),
+            Some("A recent run needs attention.".to_string()),
+        )
+    } else if open_task_count > 0 {
+        ("Run next".to_string(), None)
+    } else {
+        ("Sync now".to_string(), None)
+    };
+
+    Ok(WorkerHealth {
+        polling_active,
+        project_count: projects.len(),
+        running_count,
+        open_task_count,
+        failed_run_count,
+        last_sync_at,
+        next_sync: polling_active.then(|| "within 60 seconds".to_string()),
+        codex_available: status.codex_available,
+        claude_available: status.claude_available,
+        gh_available: status.gh_available,
+        autostart_enabled: status.autostart_enabled,
+        needs_attention: intervention_reason.is_some(),
+        intervention_reason,
+        primary_action,
+    })
+}
+
+#[tauri::command]
+fn check_project_setup(path: String) -> Vec<ProjectSetupCheck> {
+    scaffold::check_project_setup(Path::new(path.trim()))
+}
+
+#[tauri::command]
+fn preview_project_creation(request: CreateProjectRequest) -> ProjectCreationPreview {
+    scaffold::preview_project_creation(&request)
 }
 
 #[tauri::command]
@@ -98,8 +187,22 @@ fn create_project(
         .unwrap_or("Project")
         .to_string();
     let repo = created_repo.or_else(|| git::repo_slug(&project_path));
+    let issue_label = request.normalized_issue_label();
+    let test_command = request.normalized_test_command();
+    let agent_backend = request.normalized_agent_backend();
+    let branch_prefix = request.normalized_branch_prefix();
     let conn = state.db.lock().expect("db lock");
-    db::insert_project(&conn, &name, &path, repo.as_deref()).map_err(Into::into)
+    db::insert_project_with_settings(
+        &conn,
+        &name,
+        &path,
+        repo.as_deref(),
+        &issue_label,
+        &test_command,
+        &agent_backend,
+        &branch_prefix,
+    )
+    .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -284,6 +387,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             app_status,
+            check_worker_health,
+            check_project_setup,
+            preview_project_creation,
             list_projects,
             add_project,
             create_project,

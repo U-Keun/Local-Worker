@@ -75,6 +75,73 @@ pub struct CreateProjectRequest {
     pub parent_path: String,
     pub create_github_repo: bool,
     pub private_repo: bool,
+    pub test_command: Option<String>,
+    pub agent_backend: Option<String>,
+    pub issue_label: Option<String>,
+    pub branch_prefix: Option<String>,
+}
+
+impl CreateProjectRequest {
+    pub fn normalized_test_command(&self) -> String {
+        normalized_optional(&self.test_command, "bash scripts/smoke-test.sh")
+    }
+
+    pub fn normalized_agent_backend(&self) -> String {
+        match normalized_optional(&self.agent_backend, "codex").as_str() {
+            "claude" => "claude".to_string(),
+            _ => "codex".to_string(),
+        }
+    }
+
+    pub fn normalized_issue_label(&self) -> String {
+        normalized_optional(&self.issue_label, "agent-task")
+    }
+
+    pub fn normalized_branch_prefix(&self) -> String {
+        let prefix = normalized_optional(&self.branch_prefix, "codex")
+            .trim_matches('/')
+            .to_string();
+        if prefix.is_empty() {
+            "codex".to_string()
+        } else {
+            prefix
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct WorkerHealth {
+    pub polling_active: bool,
+    pub project_count: usize,
+    pub running_count: usize,
+    pub open_task_count: usize,
+    pub failed_run_count: usize,
+    pub last_sync_at: Option<String>,
+    pub next_sync: Option<String>,
+    pub codex_available: bool,
+    pub claude_available: bool,
+    pub gh_available: bool,
+    pub autostart_enabled: bool,
+    pub needs_attention: bool,
+    pub intervention_reason: Option<String>,
+    pub primary_action: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProjectSetupCheck {
+    pub id: String,
+    pub label: String,
+    pub status: String,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProjectCreationPreview {
+    pub project_name: String,
+    pub path: String,
+    pub repo_name: Option<String>,
+    pub checks: Vec<ProjectSetupCheck>,
+    pub files: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -106,4 +173,13 @@ pub struct ProjectUpdate {
     pub auto_push: bool,
     pub created_at: String,
     pub updated_at: String,
+}
+
+fn normalized_optional(value: &Option<String>, fallback: &str) -> String {
+    value
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(fallback)
+        .to_string()
 }

@@ -144,6 +144,50 @@ pub fn insert_project(
     get_project(conn, id)
 }
 
+pub fn insert_project_with_settings(
+    conn: &Connection,
+    name: &str,
+    path: &str,
+    repo: Option<&str>,
+    issue_label: &str,
+    test_command: &str,
+    agent_backend: &str,
+    branch_prefix: &str,
+) -> WorkerResult<Project> {
+    let ts = now();
+    conn.execute(
+        "
+        INSERT INTO projects (
+            name, path, repo, issue_label, poll_interval_seconds, test_command,
+            agent_backend, branch_prefix, auto_run, auto_push, created_at, updated_at
+        )
+        VALUES (?1, ?2, ?3, ?4, 60, ?5, ?6, ?7, 1, 1, ?8, ?8)
+        ON CONFLICT(path) DO UPDATE SET
+            name = excluded.name,
+            repo = excluded.repo,
+            issue_label = excluded.issue_label,
+            test_command = excluded.test_command,
+            agent_backend = excluded.agent_backend,
+            branch_prefix = excluded.branch_prefix,
+            updated_at = excluded.updated_at
+        ",
+        params![
+            name,
+            path,
+            repo,
+            issue_label,
+            test_command,
+            agent_backend,
+            branch_prefix,
+            ts
+        ],
+    )?;
+    let id = conn.query_row("SELECT id FROM projects WHERE path = ?1", [path], |row| {
+        row.get(0)
+    })?;
+    get_project(conn, id)
+}
+
 pub fn update_project(conn: &Connection, project: &ProjectUpdate) -> WorkerResult<Project> {
     let ts = now();
     conn.execute(
@@ -328,6 +372,29 @@ pub fn has_running_run(conn: &Connection, project_id: i64) -> WorkerResult<bool>
         |row| row.get(0),
     )?;
     Ok(count > 0)
+}
+
+pub fn last_issue_sync_at(conn: &Connection) -> WorkerResult<Option<String>> {
+    conn.query_row("SELECT MAX(last_seen_at) FROM issue_syncs", [], |row| {
+        row.get(0)
+    })
+    .map_err(Into::into)
+}
+
+pub fn latest_run(conn: &Connection) -> WorkerResult<Option<RunRecord>> {
+    conn.query_row(
+        "
+        SELECT id, project_id, task_id, status, backend, branch, commit_hash, pr_url,
+               test_command, summary, started_at, finished_at
+        FROM runs
+        ORDER BY id DESC
+        LIMIT 1
+        ",
+        [],
+        run_from_row,
+    )
+    .optional()
+    .map_err(Into::into)
 }
 
 pub fn append_log(conn: &Connection, run_id: i64, stream: &str, line: &str) -> WorkerResult<()> {

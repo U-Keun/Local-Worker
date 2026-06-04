@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   CircleAlert,
   Clock3,
+  FolderCheck,
   FolderPlus,
   Github,
   Laptop,
@@ -16,13 +17,17 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "./api";
+import { SetupWizard } from "./components/SetupWizard";
+import { WorkerHealthStrip } from "./components/WorkerHealthStrip";
 import type {
   AppStatus,
   Project,
+  ProjectSetupCheck,
   QueuedTask,
   RunLogEvent,
   RunRecord,
   RunUpdatedEvent,
+  WorkerHealth,
 } from "./types";
 
 const statusClass: Record<string, string> = {
@@ -55,6 +60,7 @@ function emptyProject(): Project | null {
 
 export default function App() {
   const [status, setStatus] = useState<AppStatus | null>(null);
+  const [health, setHealth] = useState<WorkerHealth | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [tasks, setTasks] = useState<QueuedTask[]>([]);
@@ -62,10 +68,8 @@ export default function App() {
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const [newPath, setNewPath] = useState("");
-  const [createName, setCreateName] = useState("");
-  const [createParentPath, setCreateParentPath] = useState("");
-  const [createGithubRepo, setCreateGithubRepo] = useState(false);
-  const [createPrivateRepo, setCreatePrivateRepo] = useState(true);
+  const [setupChecks, setSetupChecks] = useState<ProjectSetupCheck[]>([]);
+  const [wizardOpen, setWizardOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -80,11 +84,13 @@ export default function App() {
   );
 
   async function refresh(projectId = selectedProjectId) {
-    const [nextStatus, nextProjects] = await Promise.all([
+    const [nextStatus, nextHealth, nextProjects] = await Promise.all([
       api.appStatus(),
+      api.checkWorkerHealth(),
       api.listProjects(),
     ]);
     setStatus(nextStatus);
+    setHealth(nextHealth);
     setProjects(nextProjects);
 
     const nextProjectId =
@@ -98,13 +104,24 @@ export default function App() {
       ]);
       setTasks(nextTasks);
       setRuns(nextRuns);
-      setSelectedRunId((current) => current ?? nextRuns[0]?.id ?? null);
+      setSelectedRunId((current) =>
+        nextRuns.some((run) => run.id === current) ? current : nextRuns[0]?.id ?? null,
+      );
     } else {
       setTasks([]);
       setRuns([]);
       setSelectedRunId(null);
       setLogs([]);
     }
+  }
+
+  async function refreshHealth() {
+    const [nextStatus, nextHealth] = await Promise.all([
+      api.appStatus(),
+      api.checkWorkerHealth(),
+    ]);
+    setStatus(nextStatus);
+    setHealth(nextHealth);
   }
 
   async function refreshLogs(runId = selectedRunId) {
@@ -127,6 +144,62 @@ export default function App() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function syncSelectedProject() {
+    if (!selectedProject) {
+      setWizardOpen(true);
+      return;
+    }
+    await withBusy(async () => {
+      const result = await api.syncGithubIssues(selectedProject.id);
+      await refresh(selectedProject.id);
+      setMessage(
+        `Sync complete: ${result.added} added, ${result.skipped} skipped, ${result.issues_seen} seen`,
+      );
+    }, "Issue sync complete");
+  }
+
+  async function runSelectedProject() {
+    if (!selectedProject) {
+      setWizardOpen(true);
+      return;
+    }
+    await withBusy(async () => {
+      const run = await api.runNextTask(selectedProject.id);
+      setSelectedRunId(run.id);
+      await refresh(selectedProject.id);
+    }, "Run started");
+  }
+
+  function reviewFailure() {
+    const failedRun = runs.find((run) => run.status === "failed");
+    if (failedRun) {
+      setSelectedRunId(failedRun.id);
+      setMessage("Latest failed run selected");
+    } else {
+      setMessage("No failed run is loaded for the selected project");
+    }
+  }
+
+  function handleHealthAction(action: WorkerHealth["primary_action"]) {
+    if (action === "Complete setup") {
+      setWizardOpen(true);
+    } else if (action === "Run next") {
+      runSelectedProject().catch((error) => setMessage(String(error)));
+    } else if (action === "Review failure") {
+      reviewFailure();
+    } else {
+      syncSelectedProject().catch((error) => setMessage(String(error)));
+    }
+  }
+
+  async function checkExistingProject() {
+    if (!newPath.trim()) return;
+    await withBusy(async () => {
+      const checks = await api.checkProjectSetup(newPath.trim());
+      setSetupChecks(checks);
+    }, "Setup check complete");
   }
 
   useEffect(() => {
@@ -205,19 +278,7 @@ export default function App() {
           <div className="actions">
             <button
               disabled={!selectedProject || busy}
-              onClick={() =>
-                selectedProject &&
-                withBusy(
-                  async () => {
-                    const result = await api.syncGithubIssues(selectedProject.id);
-                    await refresh(selectedProject.id);
-                    setMessage(
-                      `Sync complete: ${result.added} added, ${result.skipped} skipped, ${result.issues_seen} seen`,
-                    );
-                  },
-                  "Issue sync complete",
-                )
-              }
+              onClick={() => syncSelectedProject().catch((error) => setMessage(String(error)))}
               title="Sync GitHub issues"
             >
               <Github size={18} />
@@ -225,17 +286,7 @@ export default function App() {
             </button>
             <button
               disabled={!selectedProject || busy}
-              onClick={() =>
-                selectedProject &&
-                withBusy(
-                  async () => {
-                    const run = await api.runNextTask(selectedProject.id);
-                    setSelectedRunId(run.id);
-                    await refresh(selectedProject.id);
-                  },
-                  "Run started",
-                )
-              }
+              onClick={() => runSelectedProject().catch((error) => setMessage(String(error)))}
               title="Run next task"
             >
               <Play size={18} />
@@ -254,6 +305,13 @@ export default function App() {
         {message && <div className="message">{message}</div>}
 
         <section className="dashboard-grid">
+          <WorkerHealthStrip
+            health={health}
+            busy={busy}
+            onPrimaryAction={handleHealthAction}
+            onRefresh={() => refreshHealth().catch((error) => setMessage(String(error)))}
+          />
+
           <section className="setup-grid">
             <form
               className="setup-panel"
@@ -263,6 +321,7 @@ export default function App() {
                 withBusy(async () => {
                   const project = await api.addProject(newPath.trim());
                   setNewPath("");
+                  setSetupChecks([]);
                   await refresh(project.id);
                 }, "Project added").catch(() => undefined);
               }}
@@ -277,67 +336,51 @@ export default function App() {
                   onChange={(event) => setNewPath(event.target.value)}
                   placeholder="/path/to/repo"
                 />
+                <button
+                  type="button"
+                  disabled={busy || !newPath.trim()}
+                  onClick={() => checkExistingProject().catch((error) => setMessage(String(error)))}
+                  title="Check project"
+                >
+                  <FolderCheck size={18} />
+                </button>
                 <button type="submit" disabled={busy} title="Add project">
                   <Plus size={18} />
                 </button>
               </div>
+              {setupChecks.length > 0 && (
+                <div className="compact-check-list">
+                  {setupChecks.slice(0, 5).map((check) => (
+                    <div key={check.id} className={`compact-check ${check.status}`}>
+                      <span>{check.label}</span>
+                      <small>{check.detail}</small>
+                    </div>
+                  ))}
+                </div>
+              )}
             </form>
 
-            <form
-              className="setup-panel"
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (!createName.trim() || !createParentPath.trim()) return;
-                withBusy(async () => {
-                  const project = await api.createProject({
-                    name: createName.trim(),
-                    parent_path: createParentPath.trim(),
-                    create_github_repo: createGithubRepo,
-                    private_repo: createPrivateRepo,
-                  });
-                  setCreateName("");
-                  await refresh(project.id);
-                }, "Project created").catch(() => undefined);
-              }}
-            >
+            <section className="setup-panel create-cta-panel">
               <div className="setup-heading">
                 <FolderPlus size={18} />
                 <h3>Create New Project</h3>
               </div>
-              <div className="create-form">
-                <input
-                  value={createName}
-                  onChange={(event) => setCreateName(event.target.value)}
-                  placeholder="project-name"
-                />
-                <input
-                  value={createParentPath}
-                  onChange={(event) => setCreateParentPath(event.target.value)}
-                  placeholder="/parent/folder"
-                />
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={createGithubRepo}
-                    onChange={(event) => setCreateGithubRepo(event.target.checked)}
-                  />
-                  Create GitHub repo
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={createPrivateRepo}
-                    disabled={!createGithubRepo}
-                    onChange={(event) => setCreatePrivateRepo(event.target.checked)}
-                  />
-                  Private
-                </label>
-                <button type="submit" disabled={busy} title="Create project">
+              <div className="create-cta-body">
+                <div>
+                  <strong>Worker-ready repository</strong>
+                  <small>AGENTS.md, tasks, smoke test, git init</small>
+                </div>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setWizardOpen(true)}
+                  title="Create project"
+                >
                   <FolderPlus size={18} />
-                  Create
+                  New Project
                 </button>
               </div>
-            </form>
+            </section>
           </section>
 
           <section className="summary-grid">
@@ -440,6 +483,15 @@ export default function App() {
           </section>
         </section>
       </section>
+
+      <SetupWizard
+        open={wizardOpen}
+        onClose={() => setWizardOpen(false)}
+        onCreated={async (project) => {
+          await refresh(project.id);
+          setMessage("Project created");
+        }}
+      />
     </main>
   );
 }

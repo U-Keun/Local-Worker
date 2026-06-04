@@ -57,6 +57,40 @@ export interface AppStatus {
   autostart_enabled: boolean;
 }
 
+export interface WorkerHealth {
+  polling_active: boolean;
+  project_count: number;
+  running_count: number;
+  open_task_count: number;
+  failed_run_count: number;
+  last_sync_at: string | null;
+  next_sync: string | null;
+  codex_available: boolean;
+  claude_available: boolean;
+  gh_available: boolean;
+  autostart_enabled: boolean;
+  needs_attention: boolean;
+  intervention_reason: string | null;
+  primary_action: "Complete setup" | "Sync now" | "Run next" | "Review failure";
+}
+
+export type SetupCheckStatus = "passed" | "warning" | "failed";
+
+export interface ProjectSetupCheck {
+  id: string;
+  label: string;
+  status: SetupCheckStatus;
+  detail: string;
+}
+
+export interface ProjectCreationPreview {
+  project_name: string;
+  path: string;
+  repo_name: string | null;
+  checks: ProjectSetupCheck[];
+  files: string[];
+}
+
 export interface SyncResult {
   added: number;
   skipped: number;
@@ -68,6 +102,10 @@ export interface CreateProjectRequest {
   parent_path: string;
   create_github_repo: boolean;
   private_repo: boolean;
+  test_command?: string;
+  agent_backend?: AgentBackend;
+  issue_label?: string;
+  branch_prefix?: string;
 }
 
 export interface RunLogEvent {
