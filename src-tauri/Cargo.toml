@@ -1,0 +1,29 @@
+[package]
+name = "local-worker"
+version = "0.1.0"
+description = "A home Mac development worker for GitHub issues"
+authors = ["Local Worker"]
+edition = "2021"
+
+[lib]
+name = "local_worker_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "local-worker"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2.5.1", features = [] }
+
+[dependencies]
+chrono = { version = "0.4.39", features = ["serde"] }
+rusqlite = { version = "0.32.1", features = ["bundled"] }
+serde = { version = "1.0.216", features = ["derive"] }
+serde_json = "1.0.134"
+tauri = { version = "2.11.2", features = ["tray-icon"] }
+thiserror = "2.0.9"
+uuid = { version = "1.11.0", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3.15.0"

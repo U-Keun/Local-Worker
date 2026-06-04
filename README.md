@@ -1,231 +1,99 @@
-# Local Dev Agent Template
+# Local Worker
 
-Turn an unused Mac or Linux machine into a local development worker for coding agents.
+Local Worker turns a spare home Mac into a GitHub-driven development worker.
 
-This template is intentionally small. It gives you a repeatable loop:
+The app watches registered repositories for GitHub Issues labeled `agent-task`. When it finds a new issue, it writes a compatible `tasks/queue.md` entry, runs Codex or Claude CLI against the repository, verifies the configured test command, commits the result, pushes a branch, opens a pull request, and comments back on the issue.
 
-```text
-tasks/queue.md
-  -> agent-once.sh
-  -> Claude Code headless run
-  -> code/docs changes
-  -> test command
-  -> commit or failure report
-```
+## What It Does
 
-## Goals
-
-- Run one coherent development task per agent invocation.
-- Keep every run reviewable through logs, git diff, and commits.
-- Avoid direct changes to `main` or `master`.
-- Prevent obvious unsafe operations such as reading secrets, pushing, using sudo, or deleting unrelated files.
-- Stay agent-agnostic enough to later support Codex, Aider, OpenHands, Gemini CLI, or a custom runner.
+- Runs as a macOS-first Tauri desktop app with a menu bar tray.
+- Uses your existing `gh`, `codex`, and `claude` CLI authentication.
+- Stores project, run, log, and issue-sync state in SQLite.
+- Keeps the original Markdown task files for review and CLI compatibility.
+- Blocks runs when non-task files are already dirty.
+- Never merges PRs automatically.
 
 ## Requirements
 
-- macOS or Linux
+- macOS with the user logged in
 - Git
-- Claude Code CLI available as `claude`
-- A project-level test command
-- Optional: GitHub CLI `gh` for creating and pushing the repository
+- GitHub CLI authenticated with `gh auth login`
+- Codex CLI and/or Claude Code CLI authenticated locally
+- Node.js, pnpm, and Rust for development
 
-## Quick start
+## Development
 
-From this template repository:
+Install dependencies:
 
 ```bash
-chmod +x scripts/*.sh
-./scripts/setup.sh
+pnpm install
 ```
 
-`setup.sh` starts an interactive Claude session that asks a few questions and writes `.agent.env` for you.
+Run the desktop app in development mode:
 
-For the template itself, the default test command is:
+```bash
+pnpm tauri:dev
+```
+
+Run frontend and Rust checks:
+
+```bash
+pnpm build
+cargo test --manifest-path src-tauri/Cargo.toml
+```
+
+The legacy template smoke test still validates the repository contract:
 
 ```bash
 bash scripts/smoke-test.sh
 ```
 
-Run one development cycle:
+## Operating Model
 
-```bash
-./scripts/agent-once.sh
-```
+1. Create a new project from the app or register an existing local Git repository.
+2. Make sure the repository has a GitHub `origin` remote and `gh` can access it.
+3. Create a GitHub Issue from anywhere and add the `agent-task` label.
+4. Local Worker polls open labeled issues, creates a `TODO-XXX` entry in `tasks/queue.md`, and starts the first open task.
+5. The worker creates a branch using the configured prefix, defaulting to `codex/`.
+6. Codex or Claude makes the code changes.
+7. Local Worker runs the project test command.
+8. On success, Local Worker marks the task done, writes `tasks/done.md`, commits, pushes, creates a PR, and comments on the issue.
+9. On failure, Local Worker marks the task blocked, writes `tasks/failed.md`, comments on the issue, and leaves the worktree intact.
 
-Run repeatedly:
+## Creating Projects
 
-```bash
-./scripts/agent-loop.sh
-```
+The dashboard can create a fresh worker-ready repository:
 
-The loop is deliberately conservative. If a run leaves uncommitted changes, the next run stops until you review the result.
+1. Enter a project name and parent folder.
+2. Choose whether to create a GitHub repository with `gh repo create`.
+3. Local Worker creates the folder, runs `git init`, writes `AGENTS.md`, `tasks/`, `.gitignore`, `README.md`, and `scripts/smoke-test.sh`.
+4. Local Worker creates the initial commit and registers the project in the app.
 
-## Recommended GitHub setup
+If GitHub creation is enabled, the app uses your existing `gh` authentication, adds `origin`, and pushes the initial commit.
 
-```bash
-mkdir local-dev-agent-template
-cd local-dev-agent-template
-# copy these template files here
+## Safety Baseline
 
-git init
-git add .
-git commit -m "init local dev agent template"
-gh repo create local-dev-agent-template --public --source=. --push
-```
+Local Worker is built for a dedicated spare machine or user account.
 
-Then enable the repository as a template from GitHub repository settings.
+- It refuses to run when there are uncommitted non-task changes.
+- It does not run `git reset`, discard work, merge PRs, or deploy.
+- It does not store GitHub tokens. The app shells out to `gh`.
+- It does not intentionally read `.env`, `.agent.env`, credentials, private keys, or token files.
+- Failed runs leave the worktree as-is so a human can inspect the result.
 
-## How to use this inside another project
+## Project Compatibility Files
 
-Copy the following files/folders into the root of the target project:
+The app keeps these files in each registered repository:
 
 ```text
-CLAUDE.md
 AGENTS.md
-.agent.env.example
-tasks/
-scripts/
-logs/.gitkeep
-.claude/settings.example.json
+tasks/queue.md
+tasks/done.md
+tasks/failed.md
 ```
 
-Then:
+The existing Bash scripts remain as legacy compatibility tools while the Tauri app becomes the primary runner.
 
-```bash
-cp .agent.env.example .agent.env
-$EDITOR .agent.env
-```
+## Current Scope
 
-Set the real test command, for example:
-
-```bash
-TEST_COMMAND="npm test"
-# or
-TEST_COMMAND="cargo test"
-# or
-TEST_COMMAND="cmake --build build && ctest --test-dir build"
-```
-
-Add a task to `tasks/queue.md`, then run:
-
-```bash
-./scripts/agent-once.sh
-```
-
-## File structure
-
-```text
-.
-├── README.md
-├── CLAUDE.md
-├── AGENTS.md
-├── SECURITY.md
-├── .agent.env.example
-├── .gitignore
-├── .claude/
-│   └── settings.example.json
-├── docs/
-│   └── mac-launchd.md
-├── logs/
-│   └── .gitkeep
-├── scripts/
-│   ├── agent-once.sh
-│   ├── agent-loop.sh
-│   ├── add-task.sh
-│   ├── watch-issues.sh
-│   ├── setup.sh
-│   └── smoke-test.sh
-└── tasks/
-    ├── queue.md
-    ├── done.md
-    └── failed.md
-```
-
-## Adding tasks
-
-**Manually:**
-
-```bash
-bash scripts/add-task.sh --title "Fix login bug" --goal "에러 메시지가 표시되지 않는 문제 수정"
-```
-
-**From GitHub Issues (polling):**
-
-```bash
-bash scripts/watch-issues.sh &
-```
-
-`agent-task` 라벨이 붙은 open issue를 주기적으로 확인해서 `queue.md`에 자동으로 추가합니다. 기본 폴링 간격은 60초이며 `.agent.env`에서 `WATCH_INTERVAL_SECONDS`로 조정할 수 있습니다.
-
-## GitHub Actions
-
-Two optional workflows are included in `.github/workflows/`.
-
-> **Note:** When creating a new repository from this template, workflow files are copied automatically but Secrets and Variables are not. You must configure these manually in each new repository's settings.
-
-### Issue → Task sync
-
-When you label a GitHub Issue with `agent-task`, the workflow automatically appends a task entry to `tasks/queue.md` and commits it to the default branch. A comment is posted on the issue with the assigned task ID.
-
-One-time setup per project:
-
-1. Create the `agent-task` label in your repository (Settings → Labels).
-
-No secrets or tokens needed — the workflow uses the built-in `GITHUB_TOKEN`.
-
-### Agent branch CI
-
-Runs the configured test command whenever a commit is pushed to an `agent/**` branch.
-
-By default it runs `bash scripts/smoke-test.sh`. To use a project-specific test command, set a repository variable:
-
-- Settings → Secrets and variables → Actions → Variables → New repository variable
-- Name: `TEST_COMMAND`
-- Value: e.g. `npm test` or `cargo test`
-
-For projects that need a build environment (Node, Rust, Python, etc.), add the relevant setup steps to `.github/workflows/agent-ci.yml` — the file includes commented examples.
-
-## Operating model
-
-Each run should do exactly one task:
-
-1. Read `CLAUDE.md`, `AGENTS.md`, and `tasks/queue.md`.
-2. Pick the first open task.
-3. Make the smallest coherent change.
-4. Run the configured test command.
-5. Retry fixes a limited number of times.
-6. Commit only if the task is verified.
-7. Write a failure report if verification fails.
-
-## Permission model
-
-This template does not enable unrestricted execution by default.
-
-Use Claude Code permissions intentionally. You can start by copying `.claude/settings.example.json` to `.claude/settings.local.json` and adjusting it for your project:
-
-```bash
-cp .claude/settings.example.json .claude/settings.local.json
-```
-
-Keep local settings out of git. The provided `.gitignore` already ignores `.claude/settings.local.json`.
-
-## First real task suggestion
-
-After pushing the template repository, use it on a small personal project and add a task like this:
-
-```md
-## TODO-001: Add a smoke test
-Status: open
-Priority: high
-
-Goal:
-Add a minimal smoke test that verifies the project starts or builds.
-
-Done criteria:
-- The test command succeeds locally.
-- README explains how to run the test.
-
-Constraints:
-- Keep the change small.
-- Do not refactor unrelated code.
-```
+v1 is macOS-first and requires the Mac to be powered on, connected, and logged in. The menu bar app can write a LaunchAgent plist so it starts when the user logs in. A launchd helper that runs while logged out is intentionally left for a later version.
