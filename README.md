@@ -2,26 +2,31 @@
 
 Local Worker turns a spare home Mac into a GitHub-driven development worker.
 
-The app watches registered repositories for GitHub Issues labeled `agent-task`. When it finds a new issue, it writes a compatible `tasks/queue.md` entry, runs Codex or Claude CLI against the repository, verifies the configured test command, commits the result, pushes a branch, opens a pull request, and comments back on the issue.
+Create or register a local repository, label a GitHub Issue with `agent-task`,
+and the Local Worker desktop app will sync the issue, create a Markdown task,
+run Codex or Claude CLI, verify the configured test command, push a branch,
+open a pull request, and report back to the original issue.
 
-## What It Does
+## Current App
 
-- Runs as a macOS-first Tauri desktop app with a menu bar tray.
-- Uses your existing `gh`, `codex`, and `claude` CLI authentication.
-- Stores project, run, log, and issue-sync state in SQLite.
-- Keeps the original Markdown task files for review and CLI compatibility.
-- Blocks runs when non-task files are already dirty.
-- Never merges PRs automatically.
+- macOS-first Tauri desktop app with a menu bar tray.
+- Project creation wizard for worker-ready repositories.
+- GitHub Issue polling per project, with configurable interval and `Auto run`.
+- Worker Health dashboard for polling, CLI availability, autostart, and sync state.
+- SQLite state for projects, issue sync, runs, logs, pull requests, and Agent Chat.
+- Agent Chat drawer for project questions or failed-run intervention.
+- Markdown task files kept for review and CLI template compatibility.
+- Safety rules that avoid automatic reset, discard, merge, or token storage.
 
 ## Requirements
 
-- macOS with the user logged in
-- Git
-- GitHub CLI authenticated with `gh auth login`
-- Codex CLI and/or Claude Code CLI authenticated locally
-- Node.js, pnpm, and Rust for development
+- macOS with the user logged in.
+- Git.
+- GitHub CLI authenticated with `gh auth login`.
+- Codex CLI and/or Claude Code CLI installed and authenticated locally.
+- Node.js, pnpm, and Rust for development builds.
 
-## Development
+## Quick Start
 
 Install dependencies:
 
@@ -35,55 +40,27 @@ Run the desktop app in development mode:
 pnpm tauri:dev
 ```
 
-Run frontend and Rust checks:
-
-```bash
-pnpm build
-cargo test --manifest-path src-tauri/Cargo.toml
-```
-
-The legacy template smoke test still validates the repository contract:
-
-```bash
-bash scripts/smoke-test.sh
-```
+Open the app, confirm Worker Health, then create a new project or register an
+existing repository. For the full operating guide, read
+[docs/usage.md](docs/usage.md).
 
 ## Operating Model
 
-1. Create a new project from the app or register an existing local Git repository.
-2. Make sure the repository has a GitHub `origin` remote and `gh` can access it.
-3. Create a GitHub Issue from anywhere and add the `agent-task` label.
-4. Local Worker polls open labeled issues, creates a `TODO-XXX` entry in `tasks/queue.md`, and starts the first open task.
-5. The worker creates a branch using the configured prefix, defaulting to `codex/`.
-6. Codex or Claude makes the code changes.
-7. Local Worker runs the project test command.
-8. On success, Local Worker marks the task done, writes `tasks/done.md`, commits, pushes, creates a PR, and comments on the issue.
-9. On failure, Local Worker marks the task blocked, writes `tasks/failed.md`, comments on the issue, and leaves the worktree intact.
+1. A project is registered in the app.
+2. The app polls the project's GitHub repository for open issues labeled
+   `agent-task`.
+3. New issues become `TODO-XXX` entries in `tasks/queue.md`.
+4. If `Auto run` is enabled, the first open task is assigned to Codex or Claude.
+5. The app runs the configured test command.
+6. Passing runs are committed, pushed, turned into pull requests, and reported on
+   the issue.
+7. Failed runs are marked blocked, reported in `tasks/failed.md`, and left for
+   human inspection or Agent Chat intervention.
 
-## Creating Projects
+## Project Files
 
-The dashboard can create a fresh worker-ready repository:
-
-1. Enter a project name and parent folder.
-2. Choose whether to create a GitHub repository with `gh repo create`.
-3. Local Worker creates the folder, runs `git init`, writes `AGENTS.md`, `tasks/`, `.gitignore`, `README.md`, and `scripts/smoke-test.sh`.
-4. Local Worker creates the initial commit and registers the project in the app.
-
-If GitHub creation is enabled, the app uses your existing `gh` authentication, adds `origin`, and pushes the initial commit.
-
-## Safety Baseline
-
-Local Worker is built for a dedicated spare machine or user account.
-
-- It refuses to run when there are uncommitted non-task changes.
-- It does not run `git reset`, discard work, merge PRs, or deploy.
-- It does not store GitHub tokens. The app shells out to `gh`.
-- It does not intentionally read `.env`, `.agent.env`, credentials, private keys, or token files.
-- Failed runs leave the worktree as-is so a human can inspect the result.
-
-## Project Compatibility Files
-
-The app keeps these files in each registered repository:
+Local Worker keeps the original task contract inside each worker-managed
+repository:
 
 ```text
 AGENTS.md
@@ -92,8 +69,27 @@ tasks/done.md
 tasks/failed.md
 ```
 
-The existing Bash scripts remain as legacy compatibility tools while the Tauri app becomes the primary runner.
+These files make the desktop app compatible with the earlier CLI template and
+keep the work auditable from Git.
 
-## Current Scope
+## Development Commands
 
-v1 is macOS-first and requires the Mac to be powered on, connected, and logged in. The menu bar app can write a LaunchAgent plist so it starts when the user logs in. A launchd helper that runs while logged out is intentionally left for a later version.
+```bash
+pnpm build
+cargo test --manifest-path src-tauri/Cargo.toml
+bash scripts/smoke-test.sh
+pnpm tauri:build
+```
+
+## Documentation
+
+- [Detailed usage guide](docs/usage.md)
+- [Advanced legacy launchd notes](docs/mac-launchd.md)
+- [Agent task contract](AGENTS.md)
+
+## Scope
+
+v1 is designed for a powered-on Mac that is logged in and connected to the
+network. The recommended background mode is the Tauri app plus its autostart
+toggle. A helper that runs while the Mac is logged out is intentionally outside
+the v1 scope.
