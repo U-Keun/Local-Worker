@@ -253,189 +253,191 @@ export default function App() {
 
         {message && <div className="message">{message}</div>}
 
-        <section className="setup-grid">
-          <form
-            className="setup-panel"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (!newPath.trim()) return;
-              withBusy(async () => {
-                const project = await api.addProject(newPath.trim());
-                setNewPath("");
-                await refresh(project.id);
-              }, "Project added").catch(() => undefined);
-            }}
-          >
-            <div className="setup-heading">
-              <Plus size={18} />
-              <h3>Register Existing Repo</h3>
-            </div>
-            <div className="inline-form">
-              <input
-                value={newPath}
-                onChange={(event) => setNewPath(event.target.value)}
-                placeholder="/path/to/repo"
-              />
-              <button type="submit" disabled={busy} title="Add project">
+        <section className="dashboard-grid">
+          <section className="setup-grid">
+            <form
+              className="setup-panel"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (!newPath.trim()) return;
+                withBusy(async () => {
+                  const project = await api.addProject(newPath.trim());
+                  setNewPath("");
+                  await refresh(project.id);
+                }, "Project added").catch(() => undefined);
+              }}
+            >
+              <div className="setup-heading">
                 <Plus size={18} />
-              </button>
-            </div>
-          </form>
+                <h3>Register Existing Repo</h3>
+              </div>
+              <div className="inline-form">
+                <input
+                  value={newPath}
+                  onChange={(event) => setNewPath(event.target.value)}
+                  placeholder="/path/to/repo"
+                />
+                <button type="submit" disabled={busy} title="Add project">
+                  <Plus size={18} />
+                </button>
+              </div>
+            </form>
 
-          <form
-            className="setup-panel"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (!createName.trim() || !createParentPath.trim()) return;
-              withBusy(async () => {
-                const project = await api.createProject({
-                  name: createName.trim(),
-                  parent_path: createParentPath.trim(),
-                  create_github_repo: createGithubRepo,
-                  private_repo: createPrivateRepo,
-                });
-                setCreateName("");
-                await refresh(project.id);
-              }, "Project created").catch(() => undefined);
-            }}
-          >
-            <div className="setup-heading">
-              <FolderPlus size={18} />
-              <h3>Create New Project</h3>
-            </div>
-            <div className="create-form">
-              <input
-                value={createName}
-                onChange={(event) => setCreateName(event.target.value)}
-                placeholder="project-name"
-              />
-              <input
-                value={createParentPath}
-                onChange={(event) => setCreateParentPath(event.target.value)}
-                placeholder="/parent/folder"
-              />
-              <label>
-                <input
-                  type="checkbox"
-                  checked={createGithubRepo}
-                  onChange={(event) => setCreateGithubRepo(event.target.checked)}
-                />
-                Create GitHub repo
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={createPrivateRepo}
-                  disabled={!createGithubRepo}
-                  onChange={(event) => setCreatePrivateRepo(event.target.checked)}
-                />
-                Private
-              </label>
-              <button type="submit" disabled={busy} title="Create project">
+            <form
+              className="setup-panel"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (!createName.trim() || !createParentPath.trim()) return;
+                withBusy(async () => {
+                  const project = await api.createProject({
+                    name: createName.trim(),
+                    parent_path: createParentPath.trim(),
+                    create_github_repo: createGithubRepo,
+                    private_repo: createPrivateRepo,
+                  });
+                  setCreateName("");
+                  await refresh(project.id);
+                }, "Project created").catch(() => undefined);
+              }}
+            >
+              <div className="setup-heading">
                 <FolderPlus size={18} />
-                Create
-              </button>
+                <h3>Create New Project</h3>
+              </div>
+              <div className="create-form">
+                <input
+                  value={createName}
+                  onChange={(event) => setCreateName(event.target.value)}
+                  placeholder="project-name"
+                />
+                <input
+                  value={createParentPath}
+                  onChange={(event) => setCreateParentPath(event.target.value)}
+                  placeholder="/parent/folder"
+                />
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={createGithubRepo}
+                    onChange={(event) => setCreateGithubRepo(event.target.checked)}
+                  />
+                  Create GitHub repo
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={createPrivateRepo}
+                    disabled={!createGithubRepo}
+                    onChange={(event) => setCreatePrivateRepo(event.target.checked)}
+                  />
+                  Private
+                </label>
+                <button type="submit" disabled={busy} title="Create project">
+                  <FolderPlus size={18} />
+                  Create
+                </button>
+              </div>
+            </form>
+          </section>
+
+          <section className="summary-grid">
+            <div className="metric">
+              <Clock3 size={18} />
+              <span>{tasks.filter((task) => task.status === "open").length}</span>
+              <small>open tasks</small>
             </div>
-          </form>
-        </section>
+            <div className="metric">
+              <Activity size={18} />
+              <span>{runs.filter((run) => run.status === "running").length}</span>
+              <small>running</small>
+            </div>
+            <div className="metric">
+              <CheckCircle2 size={18} />
+              <span>{runs.filter((run) => run.status === "passed").length}</span>
+              <small>passed runs</small>
+            </div>
+            <div className="metric">
+              <CircleAlert size={18} />
+              <span>{runs.filter((run) => run.status === "failed").length}</span>
+              <small>failed runs</small>
+            </div>
+          </section>
 
-        <section className="summary-grid">
-          <div className="metric">
-            <Clock3 size={18} />
-            <span>{tasks.filter((task) => task.status === "open").length}</span>
-            <small>open tasks</small>
-          </div>
-          <div className="metric">
-            <Activity size={18} />
-            <span>{runs.filter((run) => run.status === "running").length}</span>
-            <small>running</small>
-          </div>
-          <div className="metric">
-            <CheckCircle2 size={18} />
-            <span>{runs.filter((run) => run.status === "passed").length}</span>
-            <small>passed runs</small>
-          </div>
-          <div className="metric">
-            <CircleAlert size={18} />
-            <span>{runs.filter((run) => run.status === "failed").length}</span>
-            <small>failed runs</small>
-          </div>
-        </section>
+          <section className="content-grid">
+            <div className="panel">
+              <div className="panel-heading">
+                <h3>Task Queue</h3>
+                <Square size={16} />
+              </div>
+              <div className="task-list">
+                {tasks.map((task) => (
+                  <article key={task.task_id} className="task-row">
+                    <div>
+                      <strong>{task.task_id}: {task.title}</strong>
+                      <p>{task.goal}</p>
+                    </div>
+                    <span className={`pill ${classForStatus(task.status)}`}>{task.status}</span>
+                  </article>
+                ))}
+                {tasks.length === 0 && <p className="empty">No queued tasks found.</p>}
+              </div>
+            </div>
 
-        <section className="content-grid">
-          <div className="panel">
+            <div className="panel">
+              <div className="panel-heading">
+                <h3>Runs</h3>
+                <Terminal size={16} />
+              </div>
+              <div className="run-list">
+                {runs.map((run) => (
+                  <button
+                    key={run.id}
+                    className={`run-row ${run.id === selectedRunId ? "selected" : ""}`}
+                    onClick={() => setSelectedRunId(run.id)}
+                  >
+                    <span>{run.task_id ?? "manual"} · {run.backend}</span>
+                    <small>{formatDate(run.started_at)}</small>
+                    <span className={`pill ${classForStatus(run.status)}`}>{run.status}</span>
+                  </button>
+                ))}
+                {runs.length === 0 && <p className="empty">No runs yet.</p>}
+              </div>
+            </div>
+          </section>
+
+          <section className="log-panel">
             <div className="panel-heading">
-              <h3>Task Queue</h3>
-              <Square size={16} />
-            </div>
-            <div className="task-list">
-              {tasks.map((task) => (
-                <article key={task.task_id} className="task-row">
-                  <div>
-                    <strong>{task.task_id}: {task.title}</strong>
-                    <p>{task.goal}</p>
-                  </div>
-                  <span className={`pill ${classForStatus(task.status)}`}>{task.status}</span>
-                </article>
-              ))}
-              {tasks.length === 0 && <p className="empty">No queued tasks found.</p>}
-            </div>
-          </div>
-
-          <div className="panel">
-            <div className="panel-heading">
-              <h3>Runs</h3>
+              <div>
+                <h3>Execution Log</h3>
+                <p>
+                  {selectedRun
+                    ? `${selectedRun.task_id ?? "manual"} · ${selectedRun.branch ?? "no branch"} · ${formatDate(selectedRun.finished_at)}`
+                    : "Select a run to inspect output."}
+                </p>
+              </div>
               <Terminal size={16} />
             </div>
-            <div className="run-list">
-              {runs.map((run) => (
-                <button
-                  key={run.id}
-                  className={`run-row ${run.id === selectedRunId ? "selected" : ""}`}
-                  onClick={() => setSelectedRunId(run.id)}
-                >
-                  <span>{run.task_id ?? "manual"} · {run.backend}</span>
-                  <small>{formatDate(run.started_at)}</small>
-                  <span className={`pill ${classForStatus(run.status)}`}>{run.status}</span>
-                </button>
-              ))}
-              {runs.length === 0 && <p className="empty">No runs yet.</p>}
-            </div>
-          </div>
-        </section>
+            <pre>{logs.join("\n")}</pre>
+          </section>
 
-        <section className="log-panel">
-          <div className="panel-heading">
-            <div>
-              <h3>Execution Log</h3>
-              <p>
-                {selectedRun
-                  ? `${selectedRun.task_id ?? "manual"} · ${selectedRun.branch ?? "no branch"} · ${formatDate(selectedRun.finished_at)}`
-                  : "Select a run to inspect output."}
-              </p>
-            </div>
-            <Terminal size={16} />
-          </div>
-          <pre>{logs.join("\n")}</pre>
-        </section>
-
-        <section className="settings-strip">
-          <Settings size={18} />
-          <label>
-            <input
-              type="checkbox"
-              checked={Boolean(status?.autostart_enabled)}
-              onChange={(event) =>
-                withBusy(async () => {
-                  const enabled = await api.setAutostart(event.target.checked);
-                  setStatus((current) =>
-                    current ? { ...current, autostart_enabled: enabled } : current,
-                  );
-                }, "Autostart updated")
-              }
-            />
-            Start Local Worker when this Mac logs in
-          </label>
+          <section className="settings-strip">
+            <Settings size={18} />
+            <label>
+              <input
+                type="checkbox"
+                checked={Boolean(status?.autostart_enabled)}
+                onChange={(event) =>
+                  withBusy(async () => {
+                    const enabled = await api.setAutostart(event.target.checked);
+                    setStatus((current) =>
+                      current ? { ...current, autostart_enabled: enabled } : current,
+                    );
+                  }, "Autostart updated")
+                }
+              />
+              Start Local Worker when this Mac logs in
+            </label>
+          </section>
         </section>
       </section>
     </main>

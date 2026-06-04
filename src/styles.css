@@ -7,6 +7,12 @@
   text-rendering: optimizeLegibility;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -30,7 +36,7 @@ button {
 .app-shell {
   display: grid;
   grid-template-columns: 280px 1fr;
-  min-height: 100vh;
+  min-height: 100%;
 }
 
 .sidebar {
@@ -147,6 +153,7 @@ button {
   display: flex;
   flex-direction: column;
   gap: 18px;
+  min-width: 0;
   padding: 24px;
   overflow: auto;
 }
@@ -179,6 +186,13 @@ button {
   display: grid;
   grid-template-columns: repeat(4, minmax(120px, 1fr));
   gap: 12px;
+}
+
+.dashboard-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 0;
 }
 
 .metric,
@@ -224,6 +238,7 @@ button {
 
 .setup-panel {
   display: grid;
+  align-content: start;
   gap: 12px;
   padding: 14px;
 }
@@ -243,6 +258,7 @@ button {
 .create-form {
   display: grid;
   gap: 8px;
+  align-items: center;
 }
 
 .inline-form {
@@ -283,6 +299,7 @@ button {
   align-items: center;
   justify-content: center;
   gap: 8px;
+  height: 40px;
   min-height: 40px;
   padding: 0 14px;
   border-radius: 8px;
@@ -416,4 +433,110 @@ button {
   display: inline-flex;
   gap: 8px;
   align-items: center;
+}
+
+@media (min-width: 1280px) and (min-height: 760px) {
+  body {
+    overflow: hidden;
+  }
+
+  .app-shell {
+    height: 100vh;
+    min-height: 0;
+  }
+
+  .sidebar {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .project-list {
+    min-height: 0;
+    overflow: auto;
+  }
+
+  .workspace {
+    height: 100vh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .dashboard-grid {
+    display: grid;
+    flex: 1;
+    grid-template-areas:
+      "setup summary"
+      "main log"
+      "settings settings";
+    grid-template-columns: minmax(660px, 1fr) minmax(360px, 430px);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    gap: 16px;
+  }
+
+  .setup-grid {
+    grid-area: setup;
+    grid-template-columns: minmax(260px, 0.85fr) minmax(380px, 1.15fr);
+  }
+
+  .summary-grid {
+    grid-area: summary;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .metric {
+    min-height: 80px;
+  }
+
+  .content-grid {
+    grid-area: main;
+    grid-template-columns: minmax(0, 1.1fr) minmax(300px, 0.9fr);
+    align-items: stretch;
+    min-height: 0;
+  }
+
+  .log-panel {
+    grid-area: log;
+  }
+
+  .settings-strip {
+    grid-area: settings;
+  }
+
+  .panel,
+  .log-panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .task-list,
+  .run-list {
+    align-content: start;
+    overflow: auto;
+  }
+
+  .log-panel pre {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+  }
+}
+
+@media (min-width: 1600px) and (min-height: 860px) {
+  .app-shell {
+    grid-template-columns: 300px 1fr;
+  }
+
+  .workspace {
+    padding: 28px;
+  }
+
+  .dashboard-grid {
+    grid-template-columns: minmax(780px, 1fr) minmax(420px, 500px);
+  }
+
+  .setup-grid {
+    grid-template-columns: minmax(300px, 0.8fr) minmax(460px, 1.2fr);
+  }
 }
