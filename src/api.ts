@@ -14,6 +14,8 @@ import type {
   ChatMessage,
   ChatTurn,
   CreateChatSessionRequest,
+  CreateLocalTaskRequest,
+  CreateLocalTaskResult,
   SendChatMessageRequest,
 } from "./types";
 
@@ -163,6 +165,10 @@ export const api = {
     isTauriRuntime()
       ? invoke<QueuedTask[]>("list_tasks", { projectId })
       : Promise.resolve([]),
+  createLocalTask: (request: CreateLocalTaskRequest) =>
+    isTauriRuntime()
+      ? invoke<CreateLocalTaskResult>("create_local_task", { request })
+      : requireTauri<CreateLocalTaskResult>("Task composer"),
   listRuns: (projectId: number) =>
     isTauriRuntime()
       ? invoke<RunRecord[]>("list_runs", { projectId })

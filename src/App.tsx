@@ -8,7 +8,6 @@ import {
   FolderPlus,
   Github,
   Laptop,
-  MessageCircle,
   Play,
   Plus,
   RefreshCw,
@@ -18,12 +17,12 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api, isTauriRuntime } from "./api";
-import { AgentChatPanel } from "./components/AgentChatPanel";
 import { SetupWizard } from "./components/SetupWizard";
+import { TaskComposerPanel } from "./components/TaskComposerPanel";
 import { WorkerHealthStrip } from "./components/WorkerHealthStrip";
 import type {
   AppStatus,
-  ChatTurn,
+  CreateLocalTaskResult,
   Project,
   ProjectSetupCheck,
   QueuedTask,
@@ -77,8 +76,9 @@ export default function App() {
     pollIntervalSeconds: 60,
   });
   const [wizardOpen, setWizardOpen] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
-  const [activeChatTurn, setActiveChatTurn] = useState<ChatTurn | null>(null);
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [composerSourceRunId, setComposerSourceRunId] = useState<number | null>(null);
+  const [composerSeedKey, setComposerSeedKey] = useState(0);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -95,6 +95,11 @@ export default function App() {
   const selectedRunNeedsDiscussion =
     selectedRun?.status === "failed" || selectedRun?.status === "blocked";
 
+  const composerSourceRun = useMemo(
+    () => runs.find((run) => run.id === composerSourceRunId) ?? null,
+    [composerSourceRunId, runs],
+  );
+
   async function refresh(projectId = selectedProjectId) {
     const [nextStatus, nextHealth, nextProjects] = await Promise.all([
       api.appStatus(),
@@ -110,21 +115,18 @@ export default function App() {
     setSelectedProjectId(nextProjectId);
 
     if (nextProjectId) {
-      const [nextTasks, nextRuns, nextActiveChatTurn] = await Promise.all([
+      const [nextTasks, nextRuns] = await Promise.all([
         api.listTasks(nextProjectId),
         api.listRuns(nextProjectId),
-        api.getActiveChatTurn(nextProjectId),
       ]);
       setTasks(nextTasks);
       setRuns(nextRuns);
-      setActiveChatTurn(nextActiveChatTurn);
       setSelectedRunId((current) =>
         nextRuns.some((run) => run.id === current) ? current : nextRuns[0]?.id ?? null,
       );
     } else {
       setTasks([]);
       setRuns([]);
-      setActiveChatTurn(null);
       setSelectedRunId(null);
       setLogs([]);
     }
@@ -199,6 +201,20 @@ export default function App() {
     } else {
       setMessage("No failed run is loaded for the selected project");
     }
+  }
+
+  function openTaskComposer(run: RunRecord | null = null) {
+    setComposerSourceRunId(run?.id ?? null);
+    setComposerSeedKey((current) => current + 1);
+    setComposerOpen(true);
+  }
+
+  async function handleTaskCreated(result: CreateLocalTaskResult) {
+    await refresh(selectedProjectId);
+    if (result.started_run) {
+      setSelectedRunId(result.started_run.id);
+    }
+    setMessage(`${result.task.task_id} created. ${result.auto_run_status}`);
   }
 
   function handleHealthAction(action: WorkerHealth["primary_action"]) {
@@ -282,8 +298,8 @@ export default function App() {
 
   useEffect(() => {
     if (selectedProject) return;
-    setChatOpen(false);
-    setActiveChatTurn(null);
+    setComposerOpen(false);
+    setComposerSourceRunId(null);
   }, [selectedProject]);
 
   useEffect(() => {
@@ -351,13 +367,12 @@ export default function App() {
               Run
             </button>
             <button
-              className={activeChatTurn ? "chat-action running" : "chat-action"}
               disabled={!selectedProject}
-              onClick={() => setChatOpen(true)}
-              title="Open Agent Chat"
+              onClick={() => openTaskComposer(null)}
+              title="Compose a queued task"
             >
-              <MessageCircle size={18} />
-              {activeChatTurn ? "Chat running" : "Chat"}
+              <Square size={18} />
+              Compose Task
             </button>
             <button
               disabled={busy}
@@ -531,11 +546,11 @@ export default function App() {
                     type="button"
                     className="secondary-button log-discuss-button"
                     disabled={!selectedProject}
-                    onClick={() => setChatOpen(true)}
-                    title="Discuss selected failed run with agent"
+                    onClick={() => openTaskComposer(selectedRun)}
+                    title="Create follow-up task"
                   >
-                    <MessageCircle size={15} />
-                    Discuss
+                    <Square size={15} />
+                    Create follow-up
                   </button>
                 )}
                 <Terminal size={16} />
@@ -611,16 +626,16 @@ export default function App() {
       </section>
 
       {selectedProject && (
-        <AgentChatPanel
-          open={chatOpen}
-          onClose={() => setChatOpen(false)}
+        <TaskComposerPanel
+          open={composerOpen}
+          onClose={() => setComposerOpen(false)}
           drawer
           project={selectedProject}
-          selectedRun={selectedRun}
-          status={status}
+          sourceRun={composerSourceRun}
+          seedKey={composerSeedKey}
           disabled={busy}
           onError={setMessage}
-          onActiveTurnChange={setActiveChatTurn}
+          onCreated={handleTaskCreated}
         />
       )}
 

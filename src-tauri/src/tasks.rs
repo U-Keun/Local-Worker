@@ -97,6 +97,56 @@ pub fn append_issue_task(
     })
 }
 
+pub fn append_local_task(
+    project_path: &Path,
+    title: &str,
+    priority: &str,
+    goal: &str,
+    done_criteria: &[String],
+    constraints: &[String],
+) -> WorkerResult<QueuedTask> {
+    ensure_task_files(project_path)?;
+    let queue_path = task_file(project_path);
+    let content = fs::read_to_string(&queue_path)?;
+    let task_id = next_local_task_id(&content);
+    let done = markdown_list(done_criteria);
+    let constraints = markdown_list(constraints);
+    let entry = format!(
+        "\n\n## {task_id}: {title}\nStatus: open\nPriority: {priority}\n\nGoal:\n{goal}\n\nDone criteria:\n{done}\n\nConstraints:\n{constraints}\n"
+    );
+    fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(&queue_path)?
+        .write_all_str(&entry)?;
+
+    Ok(QueuedTask {
+        id: None,
+        project_id: None,
+        task_id,
+        issue_number: None,
+        title: title.to_string(),
+        status: "open".to_string(),
+        priority: priority.to_string(),
+        goal: goal.to_string(),
+    })
+}
+
+pub fn next_local_task_id(content: &str) -> String {
+    let next = parse_tasks(content)
+        .into_iter()
+        .filter_map(|task| {
+            task.task_id
+                .strip_prefix("TODO-LOCAL-")?
+                .parse::<i64>()
+                .ok()
+        })
+        .max()
+        .unwrap_or(0)
+        + 1;
+    format!("TODO-LOCAL-{next:03}")
+}
+
 pub fn set_task_status(project_path: &Path, task_id: &str, status: &str) -> WorkerResult<()> {
     let queue_path = task_file(project_path);
     let content = fs::read_to_string(&queue_path)?;
@@ -232,6 +282,14 @@ fn parse_heading(line: &str) -> Option<(String, String)> {
     Some((format!("TODO-{}", number.trim()), title.trim().to_string()))
 }
 
+fn markdown_list(items: &[String]) -> String {
+    items
+        .iter()
+        .map(|item| format!("- {}", item.trim()))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 trait WriteAllStr {
     fn write_all_str(&mut self, content: &str) -> WorkerResult<()>;
 }
@@ -268,5 +326,34 @@ mod tests {
         set_task_status(temp.path(), "TODO-004", "in-progress").expect("status");
         let tasks = read_tasks(temp.path()).expect("tasks");
         assert_eq!(tasks[0].status, "in-progress");
+    }
+
+    #[test]
+    fn generates_next_local_task_id() {
+        let content = "# Task Queue\n\n## TODO-007: Issue task\nStatus: open\nPriority: medium\n\nGoal:\nIssue goal\n\n## TODO-LOCAL-002: Local task\nStatus: open\nPriority: medium\n\nGoal:\nLocal goal\n";
+        assert_eq!(next_local_task_id(content), "TODO-LOCAL-003");
+    }
+
+    #[test]
+    fn appends_and_parses_local_task() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let task = append_local_task(
+            temp.path(),
+            "Draft local work",
+            "medium",
+            "Make the local change.",
+            &["Task satisfies the request.".to_string()],
+            &[
+                "Keep the diff small.".to_string(),
+                "Do not modify unrelated files.".to_string(),
+            ],
+        )
+        .expect("append");
+        let tasks = read_tasks(temp.path()).expect("tasks");
+
+        assert_eq!(task.task_id, "TODO-LOCAL-001");
+        assert_eq!(tasks[0].task_id, "TODO-LOCAL-001");
+        assert_eq!(tasks[0].issue_number, None);
+        assert_eq!(tasks[0].goal, "Make the local change.");
     }
 }

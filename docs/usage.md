@@ -162,32 +162,23 @@ tasks. If it is off, issue sync still creates tasks, but you must press `Run`.
 The test command is the gate for success. A task is considered complete only
 after the configured command exits successfully.
 
-## Agent Chat
+## Task Composer
 
-Use `Chat` when you want to talk to Codex or Claude inside the selected project.
-The chat opens as a right-side drawer so the dashboard stays available.
+Use `Compose Task` when you want to turn a local note into a queued task. The
+composer opens as a right-side drawer so the dashboard stays available.
 
-Use Agent Chat for:
+Task Composer is intentionally not an agent chat. Typing a request does not run
+Codex or Claude, edit files, or start tests. It prepares a task draft with title,
+priority, goal, done criteria, and constraints. The task is added to
+`tasks/queue.md` only after you press `Create Task`.
 
-- Asking about the current project.
-- Requesting a small follow-up edit.
-- Investigating a failed or blocked run.
+If the selected project has `Auto run` enabled, Local Worker may start the next
+open task after the new task is created. If a run is already active or the
+worktree is not ready, the task stays queued and the app shows the reason.
 
 When a failed or blocked run is selected, the Execution Log header shows
-`Discuss`. That opens the same Agent Chat drawer with the selected run context.
-
-Important behavior:
-
-- Chat may edit files in the existing worktree and branch.
-- Chat does not automatically commit, push, create pull requests, or merge.
-- After each assistant response, Local Worker runs the configured test command.
-- Test results and live output are shown in the chat timeline.
-- A project cannot run an automated task and a chat turn at the same time.
-- The scheduler can keep syncing issues while a chat turn is active, but it does
-  not start a duplicate auto-run.
-
-If the selected backend is missing, the chat UI shows it as unavailable and
-prevents sending.
+`Create follow-up`. That opens the same composer with failure context so you can
+create a focused follow-up task.
 
 ## Failure Handling
 
@@ -215,8 +206,8 @@ tasks/failed.md
 tasks/queue.md
 ```
 
-Then use the app's logs or `Discuss` to ask the agent what happened. The
-worktree is left as-is so you can inspect or repair it manually.
+Then use the app's logs or `Create follow-up` to queue a focused repair task.
+The worktree is left as-is so you can inspect or repair it manually.
 
 ## Safety Model
 
@@ -307,7 +298,7 @@ the last sync, next sync, and any sync error.
 If an automated run will not start, check whether:
 
 - `Auto run` is enabled.
-- Another run or chat turn is active.
+- Another run is active.
 - The worktree is dirty.
 - There is an open task in `tasks/queue.md`.
 - The selected backend is installed and authenticated.

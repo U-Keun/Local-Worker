@@ -13,8 +13,8 @@ open a pull request, and report back to the original issue.
 - Project creation wizard for worker-ready repositories.
 - GitHub Issue polling per project, with configurable interval and `Auto run`.
 - Worker Health dashboard for polling, CLI availability, autostart, and sync state.
-- SQLite state for projects, issue sync, runs, logs, pull requests, and Agent Chat.
-- Agent Chat drawer for project questions or failed-run intervention.
+- SQLite state for projects, issue sync, runs, logs, pull requests, and task drafts.
+- Task Composer drawer for turning local notes or failed runs into queued tasks.
 - Markdown task files kept for review and CLI template compatibility.
 - Safety rules that avoid automatic reset, discard, merge, or token storage.
 
@@ -55,7 +55,7 @@ existing repository. For the full operating guide, read
 6. Passing runs are committed, pushed, turned into pull requests, and reported on
    the issue.
 7. Failed runs are marked blocked, reported in `tasks/failed.md`, and left for
-   human inspection or Agent Chat intervention.
+   human inspection or Task Composer follow-up tasks.
 
 ## Project Files
 

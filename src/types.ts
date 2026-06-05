@@ -165,6 +165,22 @@ export interface SendChatMessageRequest {
   content: string;
 }
 
+export interface CreateLocalTaskRequest {
+  project_id: number;
+  source_run_id?: number | null;
+  title: string;
+  priority: "low" | "medium" | "high";
+  goal: string;
+  done_criteria: string[];
+  constraints: string[];
+}
+
+export interface CreateLocalTaskResult {
+  task: QueuedTask;
+  started_run: RunRecord | null;
+  auto_run_status: string;
+}
+
 export interface ChatLogEvent {
   turn_id: number;
   stream: string;

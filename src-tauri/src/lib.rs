@@ -26,8 +26,9 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::errors::{WorkerError, WorkerResult};
 use crate::models::{
     AppStatus, ChatMessage, ChatMessageEvent, ChatSession, ChatTurn, CreateChatSessionRequest,
-    CreateProjectRequest, Project, ProjectCreationPreview, ProjectSetupCheck, ProjectUpdate,
-    QueuedTask, RunRecord, SendChatMessageRequest, SyncResult, WorkerHealth,
+    CreateLocalTaskRequest, CreateLocalTaskResult, CreateProjectRequest, Project,
+    ProjectCreationPreview, ProjectSetupCheck, ProjectUpdate, QueuedTask, RunRecord,
+    SendChatMessageRequest, SyncResult, WorkerHealth,
 };
 
 pub struct AppState {
@@ -237,6 +238,64 @@ fn list_tasks(
         db::upsert_task(&conn, project_id, task).map_err(String::from)?;
     }
     Ok(parsed)
+}
+
+#[tauri::command]
+fn create_local_task(
+    app: AppHandle,
+    request: CreateLocalTaskRequest,
+) -> Result<CreateLocalTaskResult, String> {
+    let state = app.state::<AppState>();
+    let (project, task) = {
+        let conn = state.db.lock().expect("db lock");
+        let project = db::get_project(&conn, request.project_id).map_err(String::from)?;
+        let title = request.normalized_title();
+        let priority = request.normalized_priority();
+        let done_criteria = request.normalized_done_criteria();
+        let constraints = request.normalized_constraints();
+        let goal = request.normalized_goal();
+
+        if let Some(run_id) = request.source_run_id {
+            let run = db::get_run(&conn, run_id).map_err(String::from)?;
+            if run.project_id != project.id {
+                return Err("source run does not belong to this project".to_string());
+            }
+        }
+
+        let mut task = tasks::append_local_task(
+            Path::new(&project.path),
+            &title,
+            &priority,
+            &goal,
+            &done_criteria,
+            &constraints,
+        )
+        .map_err(String::from)?;
+        task.project_id = Some(project.id);
+        db::upsert_task(&conn, project.id, &task).map_err(String::from)?;
+        (project, task)
+    };
+
+    if !project.auto_run {
+        return Ok(CreateLocalTaskResult {
+            task,
+            started_run: None,
+            auto_run_status: "Task queued. Auto run is off.".to_string(),
+        });
+    }
+
+    match start_project_run(&app, project.id) {
+        Ok(run) => Ok(CreateLocalTaskResult {
+            task,
+            started_run: Some(run),
+            auto_run_status: "Task queued. Auto run started the next open task.".to_string(),
+        }),
+        Err(error) => Ok(CreateLocalTaskResult {
+            task,
+            started_run: None,
+            auto_run_status: format!("Task queued. Auto run will start when possible: {error}"),
+        }),
+    }
 }
 
 #[tauri::command]
@@ -638,6 +697,7 @@ pub fn run() {
             create_project,
             update_project,
             list_tasks,
+            create_local_task,
             list_runs,
             list_logs,
             list_chat_sessions,
@@ -767,5 +827,39 @@ mod tests {
         assert!(state.last_error.is_none());
 
         drop(path_guard);
+    }
+
+    #[test]
+    fn local_task_can_be_upserted_into_sqlite() {
+        let temp = tempdir().expect("tempdir");
+        let project_dir = temp.path().join("project");
+        fs::create_dir(&project_dir).expect("project dir");
+        let conn = db::open_database(Path::new(":memory:")).expect("db");
+        let project = db::insert_project(&conn, "Example", &project_dir.to_string_lossy(), None)
+            .expect("project");
+        let mut task = tasks::append_local_task(
+            &project_dir,
+            "Create task from composer",
+            "medium",
+            "Turn the draft into a queued task.",
+            &["Task satisfies the request.".to_string()],
+            &["Keep the diff small.".to_string()],
+        )
+        .expect("task");
+        task.project_id = Some(project.id);
+
+        db::upsert_task(&conn, project.id, &task).expect("upsert");
+        let parsed = tasks::read_tasks(&project_dir).expect("parsed");
+        let stored: (String, String) = conn
+            .query_row(
+                "SELECT task_id, status FROM tasks WHERE project_id = ?1",
+                [project.id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("stored");
+
+        assert_eq!(parsed[0].task_id, "TODO-LOCAL-001");
+        assert_eq!(stored.0, "TODO-LOCAL-001");
+        assert_eq!(stored.1, "open");
     }
 }

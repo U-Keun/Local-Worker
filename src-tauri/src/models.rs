@@ -151,6 +151,63 @@ pub struct SendChatMessageRequest {
     pub content: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateLocalTaskRequest {
+    pub project_id: i64,
+    pub source_run_id: Option<i64>,
+    pub title: String,
+    pub priority: String,
+    pub goal: String,
+    pub done_criteria: Vec<String>,
+    pub constraints: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CreateLocalTaskResult {
+    pub task: QueuedTask,
+    pub started_run: Option<RunRecord>,
+    pub auto_run_status: String,
+}
+
+impl CreateLocalTaskRequest {
+    pub fn normalized_title(&self) -> String {
+        let title = self.title.split_whitespace().collect::<Vec<_>>().join(" ");
+        if title.is_empty() {
+            "Local task".to_string()
+        } else {
+            title
+        }
+    }
+
+    pub fn normalized_priority(&self) -> String {
+        match self.priority.trim() {
+            "low" => "low".to_string(),
+            "high" => "high".to_string(),
+            _ => "medium".to_string(),
+        }
+    }
+
+    pub fn normalized_goal(&self) -> String {
+        let goal = self.goal.trim();
+        if goal.is_empty() {
+            "Complete the task described by the local request.".to_string()
+        } else {
+            goal.to_string()
+        }
+    }
+
+    pub fn normalized_done_criteria(&self) -> Vec<String> {
+        normalized_lines(&self.done_criteria, &["Task satisfies the request."])
+    }
+
+    pub fn normalized_constraints(&self) -> Vec<String> {
+        normalized_lines(
+            &self.constraints,
+            &["Keep the diff small.", "Do not modify unrelated files."],
+        )
+    }
+}
+
 impl CreateProjectRequest {
     pub fn normalized_test_command(&self) -> String {
         normalized_optional(&self.test_command, "bash scripts/smoke-test.sh")
@@ -292,4 +349,18 @@ fn normalized_optional(value: &Option<String>, fallback: &str) -> String {
         .filter(|value| !value.is_empty())
         .unwrap_or(fallback)
         .to_string()
+}
+
+fn normalized_lines(values: &[String], fallback: &[&str]) -> Vec<String> {
+    let lines = values
+        .iter()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    if lines.is_empty() {
+        fallback.iter().map(|value| value.to_string()).collect()
+    } else {
+        lines
+    }
 }
