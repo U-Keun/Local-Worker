@@ -101,6 +101,7 @@ fn run_chat_agent(
                 "-p",
                 "--output-format",
                 "stream-json",
+                "--verbose",
                 "--permission-mode",
                 "auto",
                 "--session-id",

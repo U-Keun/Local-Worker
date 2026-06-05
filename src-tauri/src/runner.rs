@@ -199,6 +199,7 @@ fn run_agent(
                 "-p",
                 "--output-format",
                 "stream-json",
+                "--verbose",
                 "--permission-mode",
                 "auto",
                 prompt,
